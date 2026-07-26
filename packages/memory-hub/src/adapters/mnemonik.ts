@@ -1,77 +1,83 @@
 /**
- * MnemonikAdapter — bridges universal-memory with the Mnemonik protocol.
+ * MnemonikAdapter — real integration with @mnemonik-xyz/sdk.
  *
- * Mnemonik protocol: https://github.com/mnemon-dev/mnemon
- * - Ed25519 keypairs for signing memories
- * - COSE_Sign1 payload format
- * - Solana SPL Memo for on-chain timestamping
- * - Cross-device recall via semantic similarity
+ * Source: vendors/mnemonik/packages/sdk
+ * Hosted MCP: https://mcp.mnemonik.xyz/mcp
  *
- * When MNEMONIK_SIGNING=true, every memory_capture can optionally be signed.
- * Signed memories can be verified by anyone with the pubkey.
+ * Write modes:
+ *   local       — SQLite only, Ed25519 signed, free, no chain
+ *   participate — SQLite + Arweave (durable) + Solana anchor (tamper-proof timestamp), paid
+ *
+ * Auth: JWT from OAuth 2.1 + PKCE flow via mnemonik.xyz/install
+ * For headless/agent use: set MNEMONIC_JWT + MNEMONIC_IDENTITY env vars.
  */
 
-interface MnemonikConfig {
-  pubkey?: string;
-  apiUrl?: string;
-}
+import {
+  MnemonicClient,
+  LocalSigner,
+  Keypair,
+  parseJwtPayload,
+  type SignMemoryResult,
+  type VerifyResult,
+  type RecallHit,
+} from "@mnemonik-xyz/sdk";
 
-interface SignResult {
-  memory_id: string;
-  signature: string;
-  pubkey: string;
-  cose_payload: string;
-  solana_tx?: string;
-  timestamp: string;
-}
-
-interface VerifyResult {
-  memory_id: string;
-  valid: boolean;
-  pubkey: string;
-  signed_at: string;
-  solana_tx?: string;
-  tampered: boolean;
+export interface MnemonikConfig {
+  baseUrl?: string;
+  jwt?: string;
+  identityJson?: string;
+  mode?: "local" | "participate";
 }
 
 export class MnemonikAdapter {
-  private pubkey: string;
-  private apiUrl: string;
+  private client: MnemonicClient;
+  private mode: "local" | "participate";
 
   constructor(config: MnemonikConfig = {}) {
-    this.pubkey = config.pubkey ?? process.env.MNEMONIK_PUBKEY ?? "";
-    this.apiUrl = config.apiUrl ?? process.env.MNEMONIK_API_URL ?? "https://mnemonik.xyz/api";
-  }
+    const baseUrl = config.baseUrl ?? process.env.MNEMONIC_BASE_URL ?? "https://mcp.mnemonik.xyz";
+    const jwt = config.jwt ?? process.env.MNEMONIC_JWT;
+    const identityJson = config.identityJson ?? process.env.MNEMONIC_IDENTITY;
+    this.mode = config.mode ?? (process.env.MNEMONIC_MODE as "local" | "participate") ?? "local";
 
-  async sign(memoryId: string, opts: { anchor?: boolean } = {}): Promise<SignResult> {
-    // In production: call Mnemonik's MCP tool `mnemonic_sign_memory`
-    // which prompts browser-based approval (private key never leaves device)
-    //
-    // For now: stub that returns the expected shape so consumers can integrate
-    const response = await fetch(`${this.apiUrl}/sign`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        memory_id: memoryId,
-        pubkey: this.pubkey,
-        anchor_to_solana: opts.anchor ?? false,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Mnemonik sign failed: ${response.statusText}`);
+    if (!identityJson) {
+      throw new Error("Mnemonik: MNEMONIC_IDENTITY env var required (keypair JSON)");
+    }
+    if (!jwt) {
+      throw new Error("Mnemonik: MNEMONIC_JWT env var required — run `npx @mnemonik-xyz/cli login`");
     }
 
-    return response.json() as Promise<SignResult>;
+    // Validate JWT is not expired before constructing the client
+    parseJwtPayload(jwt); // throws AuthError if expired or malformed
+
+    const kp = Keypair.fromJSON(JSON.parse(identityJson));
+    const signer = new LocalSigner(kp);
+
+    this.client = new MnemonicClient({ baseUrl, signer, jwt });
+    this.client.setKeypair(kp);
   }
 
-  async verify(memoryId: string): Promise<VerifyResult> {
-    const response = await fetch(`${this.apiUrl}/verify/${memoryId}`);
+  /**
+   * Sign a memory with Mnemonik.
+   * Returns attestationId to store alongside the memory entry in gbrain.
+   */
+  async sign(content: string, tags: string[] = []): Promise<SignMemoryResult> {
+    return this.client.signMemory(content, { tags, mode: this.mode } as any);
+  }
 
-    if (!response.ok) {
-      throw new Error(`Mnemonik verify failed: ${response.statusText}`);
-    }
+  /**
+   * Verify a previously signed memory by its attestationId.
+   * Checks COSE_Sign1 signature; in participate mode also checks Arweave/Solana.
+   */
+  async verify(attestationId: string): Promise<VerifyResult> {
+    return this.client.verify(attestationId);
+  }
 
-    return response.json() as Promise<VerifyResult>;
+  /**
+   * Semantic recall directly from Mnemonik's SQLite index.
+   * Supplements gbrain's hybrid search with Mnemonik-native recall.
+   */
+  async recall(query: string, topK = 5): Promise<RecallHit[]> {
+    const result = await this.client.recall(query, { topK });
+    return result.hits;
   }
 }

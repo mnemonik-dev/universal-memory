@@ -57,6 +57,12 @@ universal-memory/
 
 ## Core Vendors
 
+### Mnemonik (submodule: `vendors/mnemonik`)
+- **Repo**: `mnemonik-xyz/monorepo` — Rust workspace, `@mnemonik-xyz/sdk`, hosted MCP server
+- **Why**: The actual verifiable memory protocol this project is built around.
+  Ed25519 signing, COSE_Sign1 artifacts, Arweave durable storage, Solana timestamp anchoring.
+- **Role**: Signing and provenance layer. Universal-memory stores and retrieves; Mnemonik proves.
+
 ### gbrain (submodule: `vendors/gbrain`)
 - **Why**: Production-ready, MCP-native brain layer. PGLite locally, Postgres in cloud.
   Hybrid search (vector + BM25 + RRF), self-wiring knowledge graph, synthesis layer.
@@ -71,9 +77,11 @@ universal-memory/
 ## Consumers
 
 ### Mnemonik Protocol (`adapters/mnemonik/`)
-- Adds Ed25519 signing and Solana/Arweave anchoring to memories written via memory-hub
-- MCP tools: `memory_sign`, `memory_recall`, `memory_verify`
-- Any memory can be tamper-proved and recalled from any device
+- Source: `mnemonik-xyz/monorepo` (submodule: `vendors/mnemonik/`)
+- Hosted MCP: `https://mcp.mnemonik.xyz/mcp` — use as standalone or alongside memory-hub
+- SDK: `@mnemonik-xyz/sdk` — `MnemonicClient.signMemory()` / `.recall()` / `.verify()`
+- Write modes: `local` (SQLite, free) or `participate` (Arweave + Solana anchor, paid)
+- When `MNEMONIK_SIGNING=true`: every `memory_capture` also signs via Mnemonik and stores `attestationId`
 
 ### Fabric AI (`adapters/fabric/`)
 - Fabric patterns that call memory-hub MCP tools

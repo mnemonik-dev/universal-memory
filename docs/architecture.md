@@ -86,12 +86,24 @@ Benchmark framework. Used in `packages/eval/`:
 
 ### 4. Mnemonik Adapter (`adapters/mnemonik/`)
 
-Bridges memory-hub with Mnemonik protocol:
-- Implements `MemoryService` interface from RUMBA (for compatibility)
-- Signs memories via Mnemonik's Ed25519 key infrastructure
-- Anchors to Solana chain via SPL Memo for tamper-proof timestamping
-- MCP tools: `mnemonic_sign_memory`, `mnemonic_recall`, `mnemonic_verify`
-- Consumer: Mnemonik protocol agents use memory-hub as their persistent store
+Real integration with `mnemonik-xyz/monorepo` (submodule: `vendors/mnemonik`).
+
+**What Mnemonik actually is** (Rust workspace + TypeScript SDK):
+- `core/` — codec (CBOR/COSE), identity (Ed25519), embed (TurboQuant), compress, storage (SQLite), Solana, Arweave, lineage
+- `mcp/` — MCP server binary: 5 tools, payment gate, pricing engine, OAuth 2.1
+- `packages/sdk/` — `@mnemonik-xyz/sdk`: `MnemonicClient`, `LocalSigner`, `Keypair`, OAuth PKCE
+- **Hosted MCP**: `https://mcp.mnemonik.xyz/mcp` — use directly as MCP server
+
+**Write modes**:
+- `local` — SQLite + Ed25519 signed, free
+- `participate` — Arweave (durable storage) + Solana SPL Memo (timestamp anchor), paid
+
+**Integration pattern**:
+- `MnemonicClient.signMemory(content)` → returns `attestationId`
+- `MnemonicClient.verify(attestationId)` → `{ status: 'verified' | 'tampered' | 'not_found' }`
+- `MnemonicClient.recall(query)` → semantic search over signed memories
+
+**Role**: Signs memories from universal-memory hub. `attestationId` stored alongside gbrain entry. `memory_verify` checks the COSE_Sign1 signature. Mnemonik agents read from both Mnemonik's own SQLite index and gbrain's synthesis layer.
 
 ### 5. Fabric Adapter (`adapters/fabric/`)
 

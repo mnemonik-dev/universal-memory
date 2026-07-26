@@ -31,8 +31,12 @@ const storage = await StorageFactory.create({
 
 const ingest = new IngestPipeline(storage);
 
+// Mnemonik signing is optional. Requires MNEMONIC_IDENTITY + MNEMONIC_JWT env vars.
+// Run `npx @mnemonik-xyz/cli init && npx @mnemonik-xyz/cli login` to set up.
 const mnemonik = process.env.MNEMONIK_SIGNING === "true"
-  ? new MnemonikAdapter({ pubkey: process.env.MNEMONIK_PUBKEY })
+  ? new MnemonikAdapter({
+      mode: (process.env.MNEMONIC_MODE as "local" | "participate") ?? "local",
+    })
   : null;
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -46,7 +50,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           content: { type: "string", description: "The content to store" },
           source: { type: "string", description: "Optional source identifier (URL, file path, topic)" },
           user_id: { type: "string", description: "User scope for multi-user deployments" },
-          sign: { type: "boolean", description: "Sign with Mnemonik key (requires MNEMONIK_SIGNING=true)" },
+          sign: { type: "boolean", description: "Sign with Mnemonik Ed25519 key (requires MNEMONIK_SIGNING=true + MNEMONIC_IDENTITY + MNEMONIC_JWT)" },
+          tags: { type: "array", items: { type: "string" }, description: "Optional tags for the Mnemonik attestation" },
         },
         required: ["content"],
       },
@@ -78,25 +83,25 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: "memory_verify",
-      description: "Verify the Ed25519 signature of a memory entry. Returns signature validity, signer pubkey, and Solana anchor transaction if available.",
+      description: "Verify a Mnemonik attestation by its attestationId. Checks COSE_Sign1 Ed25519 signature. In participate mode also checks Arweave/Solana anchors. Returns: verified | tampered | not_found.",
       inputSchema: {
         type: "object",
         properties: {
-          memory_id: { type: "string", description: "Memory entry ID to verify" },
+          attestation_id: { type: "string", description: "The attestationId returned by memory_capture (with sign:true) or memory_sign" },
         },
-        required: ["memory_id"],
+        required: ["attestation_id"],
       },
     },
     {
       name: "memory_sign",
-      description: "Sign a memory entry with the configured Mnemonik Ed25519 key and optionally anchor to Solana for tamper-proof timestamping.",
+      description: "Sign content with the configured Mnemonik Ed25519 key via @mnemonik-xyz/sdk. Uses local mode (SQLite, free) or participate mode (Arweave + Solana, paid) based on MNEMONIC_MODE env var.",
       inputSchema: {
         type: "object",
         properties: {
-          memory_id: { type: "string", description: "Memory entry ID to sign" },
-          anchor: { type: "boolean", description: "Also anchor to Solana chain (requires SOLANA_RPC configured)" },
+          content: { type: "string", description: "Content to sign" },
+          tags: { type: "array", items: { type: "string" }, description: "Optional tags for the attestation" },
         },
-        required: ["memory_id"],
+        required: ["content"],
       },
     },
     {
@@ -130,15 +135,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   switch (name) {
     case "memory_capture": {
+      const content = args.content as string;
       const result = await ingest.add({
-        content: args.content as string,
+        content,
         source: args.source as string | undefined,
         userId: args.user_id as string | undefined,
       });
+      let attestationId: string | undefined;
       if (args.sign && mnemonik) {
-        await mnemonik.sign(result.id);
+        const signed = await mnemonik.sign(content, args.tags as string[] | undefined);
+        attestationId = signed.attestationId;
       }
-      return { content: [{ type: "text", text: JSON.stringify({ status: "captured", id: result.id, chunks: result.chunks }) }] };
+      return { content: [{ type: "text", text: JSON.stringify({ status: "captured", id: result.id, chunks: result.chunks, attestationId }) }] };
     }
 
     case "memory_search": {
@@ -160,17 +168,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     case "memory_verify": {
       if (!mnemonik) {
-        return { content: [{ type: "text", text: JSON.stringify({ error: "Mnemonik signing not configured" }) }] };
+        return { content: [{ type: "text", text: JSON.stringify({ error: "Set MNEMONIK_SIGNING=true + MNEMONIC_IDENTITY + MNEMONIC_JWT to enable" }) }] };
       }
-      const result = await mnemonik.verify(args.memory_id as string);
+      // attestation_id is the ID returned by mnemonic_sign_memory / memory_capture with sign:true
+      const result = await mnemonik.verify(args.attestation_id as string);
+      // result: { status: 'verified'|'tampered'|'not_found', signer?, arweaveTx?, solanaTx? }
       return { content: [{ type: "text", text: JSON.stringify(result) }] };
     }
 
     case "memory_sign": {
       if (!mnemonik) {
-        return { content: [{ type: "text", text: JSON.stringify({ error: "Mnemonik signing not configured" }) }] };
+        return { content: [{ type: "text", text: JSON.stringify({ error: "Set MNEMONIK_SIGNING=true + MNEMONIC_IDENTITY + MNEMONIC_JWT to enable" }) }] };
       }
-      const result = await mnemonik.sign(args.memory_id as string, { anchor: args.anchor as boolean });
+      // Sign raw content directly via @mnemonik-xyz/sdk client.signMemory()
+      const result = await mnemonik.sign(
+        args.content as string,
+        args.tags as string[] | undefined
+      );
       return { content: [{ type: "text", text: JSON.stringify(result) }] };
     }
 

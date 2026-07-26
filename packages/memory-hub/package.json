@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "gbrain": "workspace:../../vendors/gbrain",
+    "@mnemonik-xyz/sdk": "latest",
     "@modelcontextprotocol/sdk": "^1.0.0"
   },
   "devDependencies": {
