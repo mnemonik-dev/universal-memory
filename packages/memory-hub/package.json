@@ -1,0 +1,28 @@
+{
+  "name": "@universal-memory/hub",
+  "version": "0.1.0",
+  "description": "Universal MCP memory server — local + cloud, verifiable, multi-client",
+  "type": "module",
+  "bin": {
+    "memory-hub": "src/mcp/server.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./mcp": "./src/mcp/server.ts",
+    "./storage": "./src/storage/index.ts",
+    "./ingest": "./src/ingest/index.ts"
+  },
+  "dependencies": {
+    "gbrain": "workspace:../../vendors/gbrain",
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  },
+  "scripts": {
+    "dev": "bun --watch src/mcp/server.ts",
+    "start": "bun src/mcp/server.ts",
+    "typecheck": "tsc --noEmit"
+  }
+}

@@ -1,0 +1,3 @@
+[submodule "vendors/gbrain"]
+	path = vendors/gbrain
+	url = https://github.com/garrytan/gbrain.git
