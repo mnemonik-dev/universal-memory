@@ -24,6 +24,7 @@
   "scripts": {
     "dev": "bun --watch src/mcp/server.ts",
     "start": "bun src/mcp/server.ts",
+    "setup": "bun run src/setup.ts",
     "typecheck": "tsc --noEmit"
   }
 }

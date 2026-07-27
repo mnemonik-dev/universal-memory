@@ -11,9 +11,16 @@ export interface SearchResult {
   signature?: string;
 }
 
+/** Output shape for the memory_think MCP tool. */
+export interface SynthesisResult {
+  answer: string;
+  citations: Array<{ id: string; excerpt: string }>;
+  gaps: string[];
+}
+
 export interface StorageAdapter {
   search(opts: { query: string; userId?: string; topK: number }): Promise<SearchResult[]>;
-  synthesize(opts: { question: string; userId?: string }): Promise<string>;
+  synthesize(opts: { question: string; userId?: string }): Promise<SynthesisResult>;
   add(opts: { id: string; content: string; source?: string; userId?: string; signature?: string }): Promise<void>;
   clear(opts: { userId: string }): Promise<void>;
   sync(opts: { direction: string }): Promise<{ pushed?: number; pulled?: number }>;

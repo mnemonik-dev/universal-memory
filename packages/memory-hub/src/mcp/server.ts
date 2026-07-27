@@ -17,6 +17,7 @@ import {
 import { StorageFactory } from "../storage/index.js";
 import { IngestPipeline } from "../ingest/index.js";
 import { MnemonikAdapter } from "../adapters/mnemonik.js";
+import { mode, dataDir, scrubSecrets } from "../config.js";
 
 const server = new Server(
   { name: "universal-memory", version: "0.1.0" },
@@ -159,11 +160,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     case "memory_think": {
-      const answer = await storage.synthesize({
+      const result = await storage.synthesize({
         question: args.question as string,
         userId: args.user_id as string | undefined,
       });
-      return { content: [{ type: "text", text: answer }] };
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
     }
 
     case "memory_verify": {
@@ -206,5 +207,51 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
-const transport = new StdioServerTransport();
-await server.connect(transport);
+// ─── Transport mode selector ─────────────────────────────────────────────────
+// D3: cloud mode uses HTTP MCP transport (Bun.serve + WebStandard SSE).
+// D13: never print MEMORY_API_KEY value, even in debug output.
+
+const backend = process.env.MEMORY_BACKEND ?? "local";
+
+if (backend === "cloud") {
+  const apiKey = process.env.MEMORY_API_KEY;
+  if (!apiKey) {
+    process.stderr.write(
+      "[universal-memory] FATAL: MEMORY_API_KEY is required in cloud mode.\n"
+    );
+    process.exit(1);
+  }
+
+  // Lazy import to avoid loading Bun-specific serve code in stdio mode
+  const { startHttpServer, DEFAULT_MCP_PORT } = await import("./http.js");
+  const httpPort = parseInt(process.env.MEMORY_HTTP_PORT ?? String(DEFAULT_MCP_PORT), 10);
+
+  await startHttpServer({ mcpServer: server, port: httpPort, apiKey });
+
+  // D13: show key status (set/missing) but never the value
+  process.stderr.write(
+    `[universal-memory] Universal Memory Hub ready (cloud/HTTP)\n` +
+    `[universal-memory] Listening on port ${httpPort}\n` +
+    `[universal-memory] MEMORY_API_KEY: (set)\n` +
+    `[universal-memory] AI mode: ${mode}\n`
+  );
+} else {
+  // local (default) — stdio transport
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+
+  // Print startup status to stderr (not stdout — MCP uses stdout for JSON-RPC)
+  if (mode === "bm25-only") {
+    process.stderr.write(
+      `[universal-memory] Universal Memory Hub ready (local/PGLite, BM25-only mode)\n` +
+      `[universal-memory] Data dir: ${dataDir}\n` +
+      `[universal-memory] For semantic search, set OPENAI_API_KEY or run: bunx universal-memory setup\n`
+    );
+  } else {
+    process.stderr.write(
+      `[universal-memory] Universal Memory Hub ready (local/PGLite)\n` +
+      `[universal-memory] Data dir: ${dataDir}\n` +
+      `[universal-memory] AI mode: ${mode}\n`
+    );
+  }
+}
