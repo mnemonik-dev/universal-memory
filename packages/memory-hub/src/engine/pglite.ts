@@ -7,6 +7,7 @@
  */
 
 import { createEngine } from 'gbrain/engine-factory';
+import type { BrainEngine } from 'gbrain/engine';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -16,7 +17,7 @@ import { join } from 'node:path';
  * @param dataDir - Directory where PGLite stores its data. Created if absent.
  * @returns A connected BrainEngine instance ready for use.
  */
-export async function createPgliteEngine(dataDir: string): Promise<ReturnType<typeof createEngine> extends Promise<infer T> ? T : never> {
+export async function createPgliteEngine(dataDir: string): Promise<BrainEngine> {
   // Ensure data directory exists. PGLite may fail silently without it.
   const pgliteDir = join(dataDir, '.pglite');
   mkdirSync(pgliteDir, { recursive: true });
@@ -30,5 +31,5 @@ export async function createPgliteEngine(dataDir: string): Promise<ReturnType<ty
   await engine.connect({});
   await engine.initSchema();
 
-  return engine as any;
+  return engine;
 }

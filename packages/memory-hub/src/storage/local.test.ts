@@ -2,18 +2,13 @@
  * Tests for LocalAdapter — synthesize() wiring.
  */
 
-import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect } from 'bun:test';
 
 describe('LocalAdapter.synthesize() — bm25-only mode', () => {
   it('returns setup message without calling runThink when mode is bm25-only', async () => {
-    // Mock gbrain/think so we can confirm it is NOT called
-    const runThinkMock = mock(async () => {
-      throw new Error('runThink should not be called in bm25-only mode');
-    });
-    // We use module-level mock injection via Bun mock system
-    // Since we can't easily intercept ES module imports in Bun without beforeAll,
-    // we test the behavior by checking the returned shape when mode is bm25-only.
-    // The adapter checks `mode` at call time.
+    // Since ES modules are cached, mode is already resolved at import time.
+    // We test that synthesize() returns the correct shape without throwing,
+    // and if mode is bm25-only, verifies the setup message.
 
     // Import the module under test with bm25-only mode forced via env
     const origOpenAI = process.env.OPENAI_API_KEY;

@@ -4,17 +4,10 @@
  * Git-backed: memories are markdown files in gitDir, PGLite is the search index.
  */
 
-import type { StorageAdapter, SearchResult } from "./index.js";
+import type { StorageAdapter, SearchResult, SynthesisResult } from "./index.js";
 import { mode } from "../config.js";
 import { runThink } from "gbrain/think";
 import type { ParsedCitation } from "gbrain/think";
-
-/** Output shape for memory_think tool — matches MCP schema. */
-export interface SynthesisResult {
-  answer: string;
-  citations: Array<{ id: string; excerpt: string }>;
-  gaps: string[];
-}
 
 export class LocalAdapter implements StorageAdapter {
   private engine: any; // gbrain BrainEngine type
