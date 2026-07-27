@@ -50,23 +50,36 @@ try {
     "The memory_sign tool produces Ed25519 COSE_Sign1 signatures via the Mnemonik protocol for verifiable memories.",
   ];
 
+  const assert = (cond: boolean, msg: string) => { if (!cond) throw new Error(`ASSERT: ${msg}`); };
+
   console.log("\n--- CAPTURE ---");
+  const ids: string[] = [];
   for (const content of facts) {
-    console.log("captured:", JSON.stringify(parse(await call("memory_capture", { content, source: "smoke", tags: ["smoke"] }))));
+    const r = parse(await call("memory_capture", { content, source: "smoke", tags: ["smoke"] }));
+    console.log("captured:", JSON.stringify(r));
+    assert(!!r.id && r.chunks >= 1, "capture returned an id and chunk count");
+    ids.push(r.id);
   }
 
   console.log("\n--- LIST ---");
-  console.log(JSON.stringify(parse(await call("memory_list", { limit: 10 })), null, 1));
+  const list = parse(await call("memory_list", { limit: 10 }));
+  console.log(JSON.stringify(list, null, 1));
+  assert(Array.isArray(list) && ids.every((id) => list.some((e: any) => e.id === id)), "list contains all captured ids");
 
-  console.log("\n--- SEARCH: 'how are results ranked?' ---");
-  console.log(JSON.stringify(parse(await call("memory_search", { query: "how are search results ranked?", top_k: 3 })), null, 1));
+  console.log("\n--- SEARCH: 'hybrid search ranking' ---");
+  const search = parse(await call("memory_search", { query: "hybrid search ranking", top_k: 3 }));
+  console.log(JSON.stringify(search, null, 1));
+  assert(Array.isArray(search) && search.length > 0, "search returned at least one result");
+  assert(search.some((r: any) => /RRF|fusion/i.test(r.content)), "search surfaced the RRF fact");
 
-  console.log("\n--- THINK ---");
-  console.log(JSON.stringify(parse(await call("memory_think", {
+  console.log("\n--- THINK (requires a valid LLM key; degrades gracefully otherwise) ---");
+  const think = parse(await call("memory_think", {
     question: "What does the Universal Memory Hub use for local storage, and how does it rank search results?",
-  })), null, 1));
+  }));
+  console.log(JSON.stringify(think, null, 1));
+  assert(typeof think.answer === "string" && Array.isArray(think.citations), "think returns answer + citations shape");
 
-  console.log("\nDONE");
+  console.log("\nSMOKE PASSED (capture, list, search verified; think wiring verified)");
 } catch (e) {
   failed = true;
   console.error("\nSMOKE FAILED:", (e as Error).message);

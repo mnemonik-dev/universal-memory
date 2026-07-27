@@ -16,9 +16,11 @@
  */
 
 import type { StorageAdapter, SearchResult, SynthesisResult, ListResult } from "./index.js";
-import { mode } from "../config.js";
+import { mode, embeddingsEnabled, chatModel } from "../config.js";
 import { runThink } from "gbrain/think";
 import type { ParsedCitation } from "gbrain/think";
+import { importFromContent } from "gbrain/import-file";
+import { hybridSearch } from "gbrain/search/hybrid";
 
 export class CloudAdapter implements StorageAdapter {
   private databaseUrl: string | undefined;
@@ -143,11 +145,19 @@ export class CloudAdapter implements StorageAdapter {
     await engine.executeRaw(sql.trim());
   }
 
-  async search({ query, userId, topK }: { query: string; userId?: string; topK: number }): Promise<SearchResult[]> {
+  async search({ query, topK }: { query: string; userId?: string; topK: number }): Promise<SearchResult[]> {
     const engine = await this.getEngine();
-    // engine.search() matches LocalAdapter's pattern — both adapters call the
-    // same method so future engine-level wrappers land consistently on both.
-    return engine.search({ query, userId, limit: topK });
+    // hybridSearch embeds the query — only safe with an embedding provider.
+    // Otherwise BM25 keyword search (no embeddings). Mirrors LocalAdapter.
+    const results = embeddingsEnabled
+      ? await hybridSearch(engine, query, { limit: topK })
+      : await engine.searchKeyword(query, { limit: topK });
+    return results.map((r: any) => ({
+      id: r.slug,
+      content: r.chunk_text ?? "",
+      score: r.score ?? 0,
+      source: undefined,
+    }));
   }
 
   /**
@@ -172,7 +182,7 @@ export class CloudAdapter implements StorageAdapter {
 
     try {
       const engine = await this.getEngine();
-      const result = await runThink(engine, { question });
+      const result = await runThink(engine, { question, ...(chatModel ? { model: chatModel } : {}) });
 
       // Map ParsedCitation[] to output shape { id, excerpt }
       // ParsedCitation fields: { page_slug, row_num, citation_index }
@@ -199,11 +209,13 @@ export class CloudAdapter implements StorageAdapter {
     }
   }
 
-  async add({ id, content, source, userId, signature }: {
+  async add({ id, content }: {
     id: string; content: string; source?: string; userId?: string; signature?: string;
   }): Promise<void> {
     const engine = await this.getEngine();
-    await engine.upsert({ id, content, source, userId, metadata: signature ? { signature } : undefined });
+    // gbrain ingestion: chunk + (optionally) embed + index the content as a
+    // page keyed by `id` (slug). noEmbed when no embedding provider available.
+    await importFromContent(engine, id, content, { noEmbed: !embeddingsEnabled });
   }
 
   /**
@@ -214,26 +226,21 @@ export class CloudAdapter implements StorageAdapter {
     const engine = await this.getEngine();
     const page = await engine.getPage(id);
     if (!page) return null;
-    return { id: page.slug ?? id, content: page.body ?? "" };
+    return { id: page.slug ?? id, content: page.compiled_truth ?? "" };
   }
 
   /**
-   * List stored memories, most recent first.
-   * Delegates to gbrain engine.listPages() with a limit filter.
+   * List stored memories, most recent first (gbrain listPages defaults to
+   * updated_desc).
    */
-  async list({ limit, userId }: { limit: number; userId?: string }): Promise<ListResult[]> {
+  async list({ limit }: { limit: number; userId?: string }): Promise<ListResult[]> {
     const engine = await this.getEngine();
-    const pages = await engine.listPages({
-      limit,
-      sort: 'updated_desc',
-      ...(userId ? { sourceId: userId } : {}),
-    });
+    const pages = await engine.listPages({ limit });
     return pages.map((p: any) => ({
       id: p.slug,
-      content: p.body ?? '',
-      source: p.source_path ?? undefined,
-      // Defensive fallback: guard against null/undefined created_at from older schema rows
-      // (same guard as LocalAdapter.list() — both adapters must behave consistently)
+      content: p.compiled_truth ?? "",
+      source: undefined,
+      // Defensive fallback: guard against null/undefined created_at.
       created_at: p.created_at
         ? (p.created_at instanceof Date ? p.created_at : new Date(p.created_at)).toISOString()
         : new Date().toISOString(),
@@ -255,9 +262,13 @@ export class CloudAdapter implements StorageAdapter {
     await engine.deletePage(id);
   }
 
-  async clear({ userId }: { userId: string }): Promise<void> {
+  async clear(_: { userId: string }): Promise<void> {
+    // gbrain has no per-user delete; clear all pages (single-scope MVP).
     const engine = await this.getEngine();
-    await engine.deleteByUser(userId);
+    const pages = await engine.listPages({});
+    for (const p of pages) {
+      await engine.deletePage(p.slug);
+    }
   }
 
   async sync(_: { direction: string }): Promise<{ pushed?: number; pulled?: number }> {

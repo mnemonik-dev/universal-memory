@@ -24,8 +24,7 @@ function makeMockEngine({
 } = {}) {
   return {
     kind: "postgres" as const,
-    upsert: mock(async () => {}),
-    search: mock(async () => searchResults),
+    searchKeyword: mock(async () => searchResults),
     listPages: mock(async () => listPages),
     getPage: mock(async () => existingPage),
     deletePage: mock(async () => {}),
@@ -65,8 +64,8 @@ describe("CloudAdapter.list()", () => {
     expect(results[0].id).toBe("cloud-slug-1");
   });
 
-  it("maps Page.body to content", async () => {
-    const pages = [{ slug: "s", body: "cloud content body", created_at: new Date() }];
+  it("maps Page.compiled_truth to content", async () => {
+    const pages = [{ slug: "s", compiled_truth: "cloud content body", created_at: new Date() }];
     const { adapter } = await makeCloudAdapterWithMock({ listPages: pages });
 
     const results = await adapter.list({ limit: 5 });
@@ -93,22 +92,13 @@ describe("CloudAdapter.list()", () => {
     expect(results[0].created_at).toBe("2026-07-27T12:00:00.000Z");
   });
 
-  it("calls listPages with sort updated_desc", async () => {
+  it("calls listPages with the limit (gbrain defaults to updated_desc order)", async () => {
     const { adapter, mockEngine } = await makeCloudAdapterWithMock({ listPages: [] });
 
     await adapter.list({ limit: 20 });
 
     const call = (mockEngine.listPages as ReturnType<typeof mock>).mock.calls[0];
-    expect(call[0]).toMatchObject({ limit: 20, sort: "updated_desc" });
-  });
-
-  it("passes userId as sourceId when provided", async () => {
-    const { adapter, mockEngine } = await makeCloudAdapterWithMock({ listPages: [] });
-
-    await adapter.list({ limit: 20, userId: "user-cloud-1" });
-
-    const call = (mockEngine.listPages as ReturnType<typeof mock>).mock.calls[0];
-    expect(call[0]).toMatchObject({ sourceId: "user-cloud-1" });
+    expect(call[0]).toMatchObject({ limit: 20 });
   });
 });
 
@@ -143,40 +133,37 @@ describe("CloudAdapter.delete()", () => {
 });
 
 describe("CloudAdapter.clear()", () => {
-  it("delegates to engine.deleteByUser()", async () => {
-    const { adapter, mockEngine } = await makeCloudAdapterWithMock();
+  it("deletes every page returned by listPages (gbrain has no per-user delete)", async () => {
+    const pages = [{ slug: "clear-a" }, { slug: "clear-b" }];
+    const { adapter, mockEngine } = await makeCloudAdapterWithMock({ listPages: pages });
 
-    await adapter.clear({ userId: "cloud-user-clear" });
+    await adapter.clear({ userId: "ignored-single-scope" });
 
-    expect(mockEngine.deleteByUser).toHaveBeenCalledWith("cloud-user-clear");
+    expect(mockEngine.deletePage).toHaveBeenCalledWith("clear-a");
+    expect(mockEngine.deletePage).toHaveBeenCalledWith("clear-b");
   });
 });
 
 describe("CloudAdapter.search()", () => {
-  it("delegates to engine.search() with correct params", async () => {
-    const searchResults = [{ id: "r1", content: "result", score: 0.9 }];
+  // No embedding provider in the test env (anthropic/bm25) → keyword search.
+  it("uses engine.searchKeyword() and maps gbrain SearchResult → hub shape", async () => {
+    const searchResults = [{ slug: "r1", chunk_text: "result text", score: 0.9 }];
     const { adapter, mockEngine } = await makeCloudAdapterWithMock({ searchResults });
 
     const results = await adapter.search({ query: "cloud search", topK: 3 });
 
-    expect(mockEngine.search).toHaveBeenCalledTimes(1);
-    const call = (mockEngine.search as ReturnType<typeof mock>).mock.calls[0];
-    expect(call[0]).toMatchObject({ query: "cloud search", limit: 3 });
-    expect(results).toEqual(searchResults);
+    expect(mockEngine.searchKeyword).toHaveBeenCalledTimes(1);
+    const call = (mockEngine.searchKeyword as ReturnType<typeof mock>).mock.calls[0];
+    expect(call[0]).toBe("cloud search");
+    expect(call[1]).toMatchObject({ limit: 3 });
+    expect(results).toEqual([{ id: "r1", content: "result text", score: 0.9, source: undefined }]);
   });
 });
 
-describe("CloudAdapter.add()", () => {
-  it("delegates to engine.upsert() with correct params", async () => {
-    const { adapter, mockEngine } = await makeCloudAdapterWithMock();
-
-    await adapter.add({ id: "cloud-add-id", content: "cloud content", source: "cloud://src" });
-
-    expect(mockEngine.upsert).toHaveBeenCalledTimes(1);
-    const call = (mockEngine.upsert as ReturnType<typeof mock>).mock.calls[0];
-    expect(call[0]).toMatchObject({ id: "cloud-add-id", content: "cloud content" });
-  });
-});
+// add() delegates to gbrain's importFromContent(engine, slug, content) — a
+// module function, not an engine method — so it can't be exercised with a bare
+// mock engine. Its real behavior is covered by local.unit.test.ts (real PGLite
+// round-trip) since CloudAdapter.add shares the identical implementation.
 
 describe("CloudAdapter.migrateAttestationsTable()", () => {
   it("calls db.query with CREATE TABLE IF NOT EXISTS statement", async () => {

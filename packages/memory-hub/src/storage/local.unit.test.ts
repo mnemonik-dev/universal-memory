@@ -1,253 +1,85 @@
 /**
- * Unit tests for LocalAdapter — mock engine (no PGLite startup cost).
+ * Integration tests for LocalAdapter — REAL gbrain PGLite engine (no mocks).
  *
- * These tests wire a mock gbrain engine into LocalAdapter to exercise method
- * implementations without incurring PGLite cold-start overhead.
+ * These replaced the previous mock-engine unit tests, which asserted a
+ * fictional engine API (engine.upsert / engine.search / engine.deleteByUser
+ * and Page.body / Page.source_path) that gbrain does NOT expose. Those mocks
+ * passed while the product threw on the first real capture. This suite drives
+ * the adapter against a real embedded PGLite so a wiring regression fails here.
  *
- * TDD anchors (Task 8):
- *   - LocalAdapter.add() passes id/content/source to engine.upsert()
- *   - LocalAdapter.search() delegates to engine.search() with limit=topK
- *   - LocalAdapter.list() maps Page fields to ListResult shape
- *   - LocalAdapter.delete() calls getPage then deletePage
- *   - LocalAdapter.delete() throws not_found when getPage returns null
- *   - LocalAdapter.clear() delegates to engine.deleteByUser()
+ * Runs in BM25-only mode (no API key in the test env) — add() uses noEmbed and
+ * search() uses keyword search, so no network/LLM is required.
  */
 
-import { describe, it, expect, mock, spyOn } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { LocalAdapter } from "./local.js";
 
-// ─── Mock gbrain engine ───────────────────────────────────────────────────────
+let dir: string;
+let adapter: LocalAdapter;
 
-function makeMockEngine({
-  searchResults = [] as any[],
-  listPages = [] as any[],
-  existingPage = null as any,
-} = {}) {
-  return {
-    kind: "pglite" as const,
-    upsert: mock(async () => {}),
-    search: mock(async () => searchResults),
-    listPages: mock(async () => listPages),
-    getPage: mock(async () => existingPage),
-    deletePage: mock(async () => {}),
-    deleteByUser: mock(async () => {}),
-  };
-}
-
-// ─── Shared: patch LocalAdapter to use mock engine ───────────────────────────
-
-/**
- * Creates a LocalAdapter with a pre-wired mock engine.
- * Bypasses the real createPgliteEngine() call via monkey-patching init().
- */
-async function makeAdapterWithMock(engineOpts: Parameters<typeof makeMockEngine>[0] = {}) {
-  const mockEngine = makeMockEngine(engineOpts);
-
-  const { LocalAdapter } = await import("./local.js");
-  const adapter = new LocalAdapter({ dataDir: "/tmp/mock-local-adapter" });
-
-  // Directly set the private engine field (bypasses PGLite init)
-  (adapter as any).engine = mockEngine;
-
-  return { adapter, mockEngine };
-}
-
-// ─── Tests ───────────────────────────────────────────────────────────────────
-
-describe("LocalAdapter.add()", () => {
-  it("calls engine.upsert() with id, content, and source", async () => {
-    const { adapter, mockEngine } = await makeAdapterWithMock();
-
-    await adapter.add({ id: "test-id", content: "hello world", source: "test://src" });
-
-    expect(mockEngine.upsert).toHaveBeenCalledTimes(1);
-    const call = (mockEngine.upsert as ReturnType<typeof mock>).mock.calls[0];
-    expect(call[0]).toMatchObject({ id: "test-id", content: "hello world", source: "test://src" });
-  });
-
-  it("passes signature in metadata when provided", async () => {
-    const { adapter, mockEngine } = await makeAdapterWithMock();
-
-    await adapter.add({ id: "sig-id", content: "signed content", signature: "attest-abc" });
-
-    const call = (mockEngine.upsert as ReturnType<typeof mock>).mock.calls[0];
-    expect(call[0]).toMatchObject({ metadata: { signature: "attest-abc" } });
-  });
-
-  it("passes undefined metadata when no signature", async () => {
-    const { adapter, mockEngine } = await makeAdapterWithMock();
-
-    await adapter.add({ id: "nosig-id", content: "unsigned content" });
-
-    const call = (mockEngine.upsert as ReturnType<typeof mock>).mock.calls[0];
-    expect(call[0].metadata).toBeUndefined();
-  });
+beforeAll(() => {
+  dir = mkdtempSync(join(tmpdir(), "local-adapter-it-"));
+  adapter = new LocalAdapter({ dataDir: dir });
 });
 
-describe("LocalAdapter.search()", () => {
-  it("delegates to engine.search() with correct params", async () => {
-    const searchResults = [
-      { id: "page-1", content: "result one", score: 0.9 },
-      { id: "page-2", content: "result two", score: 0.7 },
-    ];
-    const { adapter, mockEngine } = await makeAdapterWithMock({ searchResults });
-
-    const results = await adapter.search({ query: "test query", topK: 5 });
-
-    expect(mockEngine.search).toHaveBeenCalledTimes(1);
-    const call = (mockEngine.search as ReturnType<typeof mock>).mock.calls[0];
-    expect(call[0]).toMatchObject({ query: "test query", limit: 5 });
-    expect(results).toEqual(searchResults);
-  });
-
-  it("passes userId to engine.search() when provided", async () => {
-    const { adapter, mockEngine } = await makeAdapterWithMock();
-
-    await adapter.search({ query: "test", userId: "user-42", topK: 10 });
-
-    const call = (mockEngine.search as ReturnType<typeof mock>).mock.calls[0];
-    expect(call[0]).toMatchObject({ userId: "user-42" });
-  });
-
-  it("returns empty array when engine.search() returns empty", async () => {
-    const { adapter } = await makeAdapterWithMock({ searchResults: [] });
-    const results = await adapter.search({ query: "nothing", topK: 10 });
-    expect(results).toEqual([]);
-  });
+afterAll(() => {
+  try { rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
-describe("LocalAdapter.list()", () => {
-  it("calls engine.listPages() with limit and sort", async () => {
-    const pages = [
-      { slug: "pg-1", body: "body one", source_path: "src1", created_at: new Date() },
-    ];
-    const { adapter, mockEngine } = await makeAdapterWithMock({ listPages: pages });
-
-    await adapter.list({ limit: 10 });
-
-    const call = (mockEngine.listPages as ReturnType<typeof mock>).mock.calls[0];
-    expect(call[0]).toMatchObject({ limit: 10, sort: "updated_desc" });
+describe("LocalAdapter (real PGLite round-trip)", () => {
+  it("add() + getById() round-trips content by slug", async () => {
+    await adapter.add({ id: "note-alpha", content: "The quick brown fox jumps over the lazy dog." });
+    const got = await adapter.getById("note-alpha");
+    expect(got?.id).toBe("note-alpha");
+    expect(got?.content).toContain("quick brown fox");
   });
 
-  it("maps Page.slug to ListResult.id", async () => {
-    const pages = [{ slug: "my-slug-1", body: "content", created_at: new Date() }];
-    const { adapter } = await makeAdapterWithMock({ listPages: pages });
-
-    const results = await adapter.list({ limit: 5 });
-
-    expect(results[0].id).toBe("my-slug-1");
+  it("getById() returns null for a missing id", async () => {
+    expect(await adapter.getById("does-not-exist")).toBeNull();
   });
 
-  it("maps Page.body to ListResult.content", async () => {
-    const pages = [{ slug: "x", body: "the actual content text", created_at: new Date() }];
-    const { adapter } = await makeAdapterWithMock({ listPages: pages });
-
-    const results = await adapter.list({ limit: 5 });
-
-    expect(results[0].content).toBe("the actual content text");
+  it("list() returns stored entries in ListResult shape", async () => {
+    const list = await adapter.list({ limit: 20 });
+    expect(list.map((e) => e.id)).toContain("note-alpha");
+    const entry = list.find((e) => e.id === "note-alpha")!;
+    expect(typeof entry.content).toBe("string");
+    expect(entry.content).toContain("quick brown fox");
+    // created_at is always a valid ISO string
+    expect(() => new Date(entry.created_at).toISOString()).not.toThrow();
   });
 
-  it("maps Page.source_path to ListResult.source", async () => {
-    const pages = [{ slug: "y", body: "b", source_path: "https://example.com", created_at: new Date() }];
-    const { adapter } = await makeAdapterWithMock({ listPages: pages });
-
-    const results = await adapter.list({ limit: 5 });
-
-    expect(results[0].source).toBe("https://example.com");
+  it("search() finds a stored memory by keyword and returns a numeric score", async () => {
+    await adapter.add({ id: "note-beta", content: "Reciprocal rank fusion blends multiple rankings." });
+    const results = await adapter.search({ query: "fusion rankings", topK: 5 });
+    expect(results.length).toBeGreaterThan(0);
+    expect(results.some((r) => r.content.toLowerCase().includes("fusion"))).toBe(true);
+    expect(typeof results[0].score).toBe("number");
   });
 
-  it("converts Date created_at to ISO string", async () => {
-    const dateObj = new Date("2026-07-27T10:00:00.000Z");
-    const pages = [{ slug: "z", body: "b", created_at: dateObj }];
-    const { adapter } = await makeAdapterWithMock({ listPages: pages });
-
-    const results = await adapter.list({ limit: 5 });
-
-    expect(results[0].created_at).toBe(dateObj.toISOString());
+  it("delete() removes an entry; getById() then returns null", async () => {
+    await adapter.add({ id: "note-gamma", content: "an ephemeral note to be deleted" });
+    expect(await adapter.getById("note-gamma")).not.toBeNull();
+    await adapter.delete({ id: "note-gamma" });
+    expect(await adapter.getById("note-gamma")).toBeNull();
   });
 
-  it("defensive fallback for null created_at (returns current time ISO)", async () => {
-    const pages = [{ slug: "fallback", body: "b", created_at: null }];
-    const { adapter } = await makeAdapterWithMock({ listPages: pages });
-
-    const results = await adapter.list({ limit: 5 });
-
-    // Should not throw, should produce a valid ISO date string
-    expect(typeof results[0].created_at).toBe("string");
-    expect(() => new Date(results[0].created_at).toISOString()).not.toThrow();
-  });
-
-  it("passes userId as sourceId when provided", async () => {
-    const { adapter, mockEngine } = await makeAdapterWithMock({ listPages: [] });
-
-    await adapter.list({ limit: 10, userId: "user-xyz" });
-
-    const call = (mockEngine.listPages as ReturnType<typeof mock>).mock.calls[0];
-    expect(call[0]).toMatchObject({ sourceId: "user-xyz" });
-  });
-
-  it("does not pass sourceId when userId is undefined", async () => {
-    const { adapter, mockEngine } = await makeAdapterWithMock({ listPages: [] });
-
-    await adapter.list({ limit: 10 });
-
-    const call = (mockEngine.listPages as ReturnType<typeof mock>).mock.calls[0];
-    expect(call[0].sourceId).toBeUndefined();
-  });
-});
-
-describe("LocalAdapter.delete()", () => {
-  it("calls getPage then deletePage when page exists", async () => {
-    const existingPage = { slug: "to-delete", body: "content" };
-    const { adapter, mockEngine } = await makeAdapterWithMock({ existingPage });
-
-    await adapter.delete({ id: "to-delete" });
-
-    expect(mockEngine.getPage).toHaveBeenCalledWith("to-delete");
-    expect(mockEngine.deletePage).toHaveBeenCalledWith("to-delete");
-  });
-
-  it("throws error with code not_found when getPage returns null", async () => {
-    const { adapter } = await makeAdapterWithMock({ existingPage: null });
-
+  it("delete() throws { code: 'not_found' } for a missing id", async () => {
     const err = await adapter.delete({ id: "ghost-id" }).catch((e: Error) => e);
-
     expect(err).toBeInstanceOf(Error);
     expect((err as any).code).toBe("not_found");
+    expect((err as Error).message).toContain("ghost-id");
   });
 
-  it("error message contains the missing id", async () => {
-    const { adapter } = await makeAdapterWithMock({ existingPage: null });
-
-    const err = await adapter.delete({ id: "missing-page-xyz" }).catch((e: Error) => e);
-
-    expect((err as Error).message).toContain("missing-page-xyz");
+  it("sync() is a no-op returning { pushed: 0 }", async () => {
+    expect(await adapter.sync({ direction: "push" })).toEqual({ pushed: 0 });
   });
 
-  it("does NOT call deletePage when page is not found", async () => {
-    const { adapter, mockEngine } = await makeAdapterWithMock({ existingPage: null });
-
-    await adapter.delete({ id: "not-there" }).catch(() => {});
-
-    expect(mockEngine.deletePage).not.toHaveBeenCalled();
-  });
-});
-
-describe("LocalAdapter.clear()", () => {
-  it("calls engine.deleteByUser() with userId", async () => {
-    const { adapter, mockEngine } = await makeAdapterWithMock();
-
-    await adapter.clear({ userId: "clear-user-99" });
-
-    expect(mockEngine.deleteByUser).toHaveBeenCalledWith("clear-user-99");
-  });
-});
-
-describe("LocalAdapter.sync()", () => {
-  it("returns { pushed: 0 } (no-op for local-only adapter)", async () => {
-    const { adapter } = await makeAdapterWithMock();
-
-    const result = await adapter.sync({ direction: "push" });
-
-    expect(result).toEqual({ pushed: 0 });
+  // Runs last: empties the store.
+  it("clear() removes all entries", async () => {
+    await adapter.clear({ userId: "ignored-single-user" });
+    expect((await adapter.list({ limit: 50 })).length).toBe(0);
   });
 });
