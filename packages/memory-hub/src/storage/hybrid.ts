@@ -104,6 +104,23 @@ export class HybridAdapter implements StorageAdapter {
   }
 
   /**
+   * Retrieve a single memory entry by id. Checks local first, then cloud.
+   * Returns { id, content } if found in either store, null if not found in either.
+   */
+  async getById(id: string): Promise<{ id: string; content: string } | null> {
+    const localResult = await this.local.getById(id);
+    if (localResult) return localResult;
+    try {
+      return await this.cloud.getById(id);
+    } catch (err) {
+      process.stderr.write(
+        `[memory-hub] HybridAdapter cloud getById fallback failed: ${err instanceof Error ? err.message : String(err)}\n`
+      );
+      return null;
+    }
+  }
+
+  /**
    * List from local (most recent first). Falls back to cloud on empty result.
    * Cloud results may include entries not yet synced to local.
    */

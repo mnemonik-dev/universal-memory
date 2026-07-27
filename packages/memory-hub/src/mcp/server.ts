@@ -19,7 +19,7 @@ import { CloudAdapter } from "../storage/cloud.js";
 import { HybridAdapter } from "../storage/hybrid.js";
 import { IngestPipeline } from "../ingest/index.js";
 import { createMnemonikAdapter } from "../adapters/mnemonik.js";
-import { signMemory } from "../tools/sign.js";
+import { signMemory, signContent } from "../tools/sign.js";
 import type { DbClient } from "../tools/sign.js";
 import { verifyMemory } from "../tools/verify.js";
 import { mode, dataDir, scrubSecrets } from "../config.js";
@@ -121,14 +121,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: "memory_sign",
-      description: "Sign content with the configured Mnemonik Ed25519 key via @mnemonik-xyz/sdk. Uses local mode (SQLite, free) or participate mode (Arweave + Solana, paid) based on MNEMONIC_MODE env var.",
+      description: "Sign a stored memory by its id with the configured Mnemonik Ed25519 key via @mnemonik-xyz/sdk. Looks up the memory content from storage by id, then signs it. Uses local mode (SQLite, free) or participate mode (Arweave + Solana, paid) based on MNEMONIC_MODE env var.",
       inputSchema: {
         type: "object",
         properties: {
-          content: { type: "string", description: "Content to sign" },
+          id: { type: "string", description: "The id of the stored memory to sign (returned by memory_capture)" },
           tags: { type: "array", items: { type: "string" }, description: "Optional tags for the attestation" },
         },
-        required: ["content"],
+        required: ["id"],
       },
     },
     {
@@ -156,8 +156,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      // POST-MVP: memory_sync is not in the user-spec's 7-tool list. It is retained
+      // for hybrid-mode push sync but is undocumented to external users. See decisions.md.
       name: "memory_sync",
-      description: "Sync local PGLite brain to cloud Postgres for cross-device access. Pushes all local memories not yet in cloud.",
+      description: "Sync local PGLite brain to cloud Postgres for cross-device access. Pushes all local memories not yet in cloud. (Post-MVP feature — not in initial 7-tool spec.)",
       inputSchema: {
         type: "object",
         properties: {
@@ -185,7 +187,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         // Use signMemory() so idempotency and error handling are consistent.
         // _dbClientForSigning is the real Postgres client in cloud/hybrid mode (D7 CRIT-2 fix).
         // In local mode it is null — signMemory() handles null gracefully (skips idempotency check).
-        const signed = await signMemory({
+        const signed = await signContent({
           content,
           tags: args.tags as string[] | undefined,
           adapter: mnemonik,
@@ -224,12 +226,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     case "memory_sign": {
-      // Delegates to signMemory() — handles idempotency via memory_attestations table,
-      // null adapter (signing not configured / local mode), and SDK errors.
+      // Delegates to signMemory() — looks up content by id from storage, then signs.
+      // Handles idempotency via memory_attestations table, null adapter (signing not
+      // configured / local mode), and SDK errors.
       // _dbClientForSigning is the real Postgres client in cloud/hybrid mode (D7 CRIT-2 fix).
       const result = await signMemory({
-        content: args.content as string,
+        id: args.id as string,
         tags: args.tags as string[] | undefined,
+        storage,
         adapter: mnemonik,
         db: _dbClientForSigning,
       });

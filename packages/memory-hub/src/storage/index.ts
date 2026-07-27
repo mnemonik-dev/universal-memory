@@ -30,6 +30,8 @@ export interface StorageAdapter {
   search(opts: { query: string; userId?: string; topK: number }): Promise<SearchResult[]>;
   synthesize(opts: { question: string; userId?: string }): Promise<SynthesisResult>;
   add(opts: { id: string; content: string; source?: string; userId?: string; signature?: string }): Promise<void>;
+  /** Retrieve a single memory entry by id. Returns null if not found. */
+  getById(id: string): Promise<{ id: string; content: string } | null>;
   list(opts: { limit: number; userId?: string }): Promise<ListResult[]>;
   delete(opts: { id: string; userId?: string }): Promise<void>;
   clear(opts: { userId: string }): Promise<void>;

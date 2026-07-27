@@ -3,28 +3,45 @@
  *
  * Responsibilities:
  *   1. Reject local-mode calls (no adapter, no db → cloud-only error)
- *   2. Compute deterministic content hash (SHA-256 hex) for idempotency key
- *   3. Query memory_attestations by content_hash — return cached attestationId if found
- *   4. Call adapter.sign() if no existing attestation
- *   5. Insert new attestation row
- *   6. Return { attestationId, signedAt, status, cached? }
+ *   2. Look up the memory by id from storage → retrieve its content
+ *   3. If not found → return error `{ error: "memory_not_found", id }`
+ *   4. Compute deterministic content hash (SHA-256 hex) for idempotency key
+ *   5. Query memory_attestations by content_hash — return cached attestationId if found
+ *   6. Call adapter.sign() if no existing attestation
+ *   7. Insert new attestation row
+ *   8. Return { attestationId, signedAt, status, cached? }
  *
  * D7: idempotent by content hash — same content → same attestationId, no double-sign.
  * D13: never log content or JWT values.
+ *
+ * signContent() is the low-level signing primitive used by memory_capture (which
+ * already has the content in hand). signMemory() is the MCP tool handler used by
+ * memory_sign (which receives an id and must look up the content from storage).
  */
 
 import { createHash } from "node:crypto";
 import { redactJWT } from "@mnemonik-xyz/sdk";
 import type { MnemonikAdapter } from "../adapters/mnemonik.js";
+import type { StorageAdapter } from "../storage/index.js";
 
 /** Minimal Postgres client interface (pg Pool or Bun's own SQL client). */
 export interface DbClient {
   query(sql: string, params?: unknown[]): Promise<{ rows: Record<string, unknown>[] }>;
 }
 
-export interface SignMemoryInput {
+/** Input for signContent() — used by memory_capture which already has the content. */
+export interface SignContentInput {
   content: string;
   tags?: string[];
+  adapter: MnemonikAdapter | null;
+  db: DbClient | null;
+}
+
+/** Input for signMemory() — used by the memory_sign MCP tool (id-based lookup). */
+export interface SignMemoryInput {
+  id: string;
+  tags?: string[];
+  storage: StorageAdapter;
   adapter: MnemonikAdapter | null;
   db: DbClient | null;
 }
@@ -37,6 +54,8 @@ export interface SignMemoryOutput {
   /** true when the attestationId was returned from cache (no new signing) */
   cached?: boolean;
   error?: string;
+  /** Present when the memory id was not found in storage */
+  id?: string;
 }
 
 /**
@@ -53,11 +72,15 @@ export function contentHashOf(content: string): string {
 }
 
 /**
- * Core sign logic — pure function over injected adapter + db.
+ * Low-level signing primitive — pure function over injected adapter + db.
+ *
+ * Used by memory_capture (which already has the content in hand) and by
+ * signMemory() after the id → content lookup.
+ *
  * Returns a discriminated result shape rather than throwing, so the MCP
  * tool handler can return user-facing error text without crashing.
  */
-export async function signMemory(input: SignMemoryInput): Promise<SignMemoryOutput> {
+export async function signContent(input: SignContentInput): Promise<SignMemoryOutput> {
   const { content, tags, adapter, db } = input;
 
   // ── Guard: empty content ──────────────────────────────────────────────────
@@ -144,4 +167,24 @@ export async function signMemory(input: SignMemoryInput): Promise<SignMemoryOutp
     status: signResult.status,
     contentHash: signResult.contentHash ?? hash,
   };
+}
+
+/**
+ * MCP tool handler for memory_sign — id-based lookup then sign.
+ *
+ * Spec: input { id, tags? } → engine.getPage(id) → retrieve content → sign.
+ * 1. Look up the memory by id from storage.
+ * 2. If not found → return { error: "memory_not_found", id }.
+ * 3. Delegate to signContent() with the retrieved content.
+ */
+export async function signMemory(input: SignMemoryInput): Promise<SignMemoryOutput> {
+  const { id, tags, storage, adapter, db } = input;
+
+  // ── Look up memory content by id ─────────────────────────────────────────
+  const entry = await storage.getById(id);
+  if (!entry) {
+    return { error: "memory_not_found", id };
+  }
+
+  return signContent({ content: entry.content, tags, adapter, db });
 }

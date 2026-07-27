@@ -207,6 +207,17 @@ export class CloudAdapter implements StorageAdapter {
   }
 
   /**
+   * Retrieve a single memory entry by id (slug).
+   * Returns { id, content } if found, null if not found.
+   */
+  async getById(id: string): Promise<{ id: string; content: string } | null> {
+    const engine = await this.getEngine();
+    const page = await engine.getPage(id);
+    if (!page) return null;
+    return { id: page.slug ?? id, content: page.body ?? "" };
+  }
+
+  /**
    * List stored memories, most recent first.
    * Delegates to gbrain engine.listPages() with a limit filter.
    */
