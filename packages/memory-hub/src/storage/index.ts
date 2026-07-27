@@ -40,7 +40,7 @@ export class StorageFactory {
         return new LocalAdapter({ gitDir: config.gitDir });
       case "cloud":
         const { CloudAdapter } = await import("./cloud.js");
-        return new CloudAdapter({ databaseUrl: config.databaseUrl! });
+        return new CloudAdapter({ databaseUrl: config.databaseUrl });
       case "hybrid":
         const { HybridAdapter } = await import("./hybrid.js");
         return new HybridAdapter({
