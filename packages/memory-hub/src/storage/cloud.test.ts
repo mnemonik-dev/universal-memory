@@ -46,11 +46,13 @@ describe('CloudAdapter — invalid_database_url_throws_actionable_error', () => 
     ).rejects.toThrow(/DATABASE_URL/);
   });
 
-  it('synthesize() returns actionable response when DATABASE_URL is not set', async () => {
+  it('synthesize() returns actionable response when DATABASE_URL is not set (bm25-only mode)', async () => {
     // synthesize() has a bm25-only short-circuit: when no LLM key is configured
     // it returns an actionable setup message WITHOUT calling getEngine() (so no
     // DATABASE_URL error fires). In full/ollama mode with DATABASE_URL missing it
-    // would throw — but in the test environment bm25-only mode is active.
+    // WOULD throw the DATABASE_URL error — but that path requires LLM keys and is
+    // only testable in smoke/integration tests.
+    // Known gap: DATABASE_URL error path in synthesize() is not covered by unit tests.
     const { CloudAdapter } = await import('./cloud.ts');
     const adapter = new CloudAdapter({ databaseUrl: undefined });
     // Must not throw in bm25-only mode — returns setup guidance instead

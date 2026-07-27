@@ -25,7 +25,11 @@ function makeStubSynthesis(overrides: Partial<SynthesisResult> = {}): SynthesisR
   };
 }
 
-describe('memory_think — calls_storage_synthesize', () => {
+// TDD anchor: calls_storage_synthesize + returns_answer_citations_gaps
+// The memory_think handler is a thin proxy (storage.synthesize → JSON.stringify);
+// we test the output contract via SynthesisResult shape, not the handler itself.
+// A handler-level spy test would require a full MCP server setup (smoke test territory).
+describe('SynthesisResult contract — calls_storage_synthesize', () => {
   it('synthesize result has required fields', () => {
     const result = makeStubSynthesis();
     expect(result).toHaveProperty('answer');
@@ -34,7 +38,7 @@ describe('memory_think — calls_storage_synthesize', () => {
   });
 });
 
-describe('memory_think — returns_answer_citations_gaps', () => {
+describe('SynthesisResult contract — returns_answer_citations_gaps', () => {
   it('answer is a non-empty string', () => {
     const result = makeStubSynthesis();
     expect(typeof result.answer).toBe('string');
@@ -79,7 +83,11 @@ describe('memory_think — returns_answer_citations_gaps', () => {
   });
 });
 
-describe('memory_think — no_llm_key_returns_actionable_error', () => {
+// TDD anchor: no_llm_key_returns_actionable_error
+// Note: the DATABASE_URL-missing error path in synthesize() (when mode !== bm25-only)
+// is not testable in unit tests (requires LLM keys to exit bm25-only mode). It is
+// covered by the smoke test (integration with real LLM key).
+describe('LocalAdapter — no_llm_key_returns_actionable_error', () => {
   it('bm25-only mode synthesize returns setup message (not a throw)', async () => {
     // Import LocalAdapter — in bm25-only mode (no LLM keys), synthesize must
     // return an actionable message, not throw. This keeps MCP tools usable.

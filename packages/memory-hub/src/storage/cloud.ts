@@ -62,12 +62,12 @@ export class CloudAdapter implements StorageAdapter {
     // Dynamic import: avoids loading the Postgres client code when running in
     // local/PGLite mode (where PostgresEngine is never needed).
     const { createEngine } = await import("gbrain/engine-factory");
-    const engine = await createEngine({
-      engine: "postgres",
-      database_url: url,
-    });
+    // createEngine() constructs the engine but does NOT call connect() —
+    // connection happens explicitly below via engine.connect().
+    const engine = await createEngine({ engine: "postgres" });
 
-    // Connect using the database_url from our config (matches EngineConfig type).
+    // Connect using the database_url. Passes it here (not to createEngine)
+    // because PostgresEngine.connect() is where the pool is actually created.
     await engine.connect({ database_url: url });
 
     // Ensure the schema is initialised (idempotent on an existing database).
@@ -88,6 +88,9 @@ export class CloudAdapter implements StorageAdapter {
    *
    * Accepts an optional db client for testability. When omitted, uses the
    * gbrain engine's executeRaw() to run the DDL against the real Postgres pool.
+   *
+   * Side effect: when called without a `db` argument, triggers full engine
+   * initialization (connect + initSchema) before running the DDL.
    */
   async migrateAttestationsTable(db?: { query(sql: string): Promise<unknown> }): Promise<void> {
     if (!db && !this.databaseUrl) {
