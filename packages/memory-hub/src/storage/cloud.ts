@@ -22,6 +22,7 @@ import type { ParsedCitation } from "gbrain/think";
 
 export class CloudAdapter implements StorageAdapter {
   private databaseUrl: string | undefined;
+  private engine: any; // gbrain BrainEngine (typed as any to match LocalAdapter pattern)
 
   constructor({ databaseUrl }: { databaseUrl?: string }) {
     // Accept undefined — database will be required on first use, not at construction.
@@ -35,6 +36,10 @@ export class CloudAdapter implements StorageAdapter {
     }
   }
 
+  /**
+   * Guard: throw an actionable error when DATABASE_URL is missing.
+   * Called at the top of every method before touching the engine.
+   */
   private requireDb(): string {
     if (!this.databaseUrl) {
       throw new Error(
@@ -43,6 +48,33 @@ export class CloudAdapter implements StorageAdapter {
       );
     }
     return this.databaseUrl;
+  }
+
+  /**
+   * Lazily initialise and return the gbrain Postgres engine.
+   * The engine is a singleton on the adapter instance — re-used across calls.
+   */
+  private async getEngine(): Promise<any> {
+    if (this.engine) return this.engine;
+
+    const url = this.requireDb();
+
+    // Dynamic import: avoids loading the Postgres client code when running in
+    // local/PGLite mode (where PostgresEngine is never needed).
+    const { createEngine } = await import("gbrain/engine-factory");
+    const engine = await createEngine({
+      engine: "postgres",
+      database_url: url,
+    });
+
+    // Connect using the database_url from our config (matches EngineConfig type).
+    await engine.connect({ database_url: url });
+
+    // Ensure the schema is initialised (idempotent on an existing database).
+    await engine.initSchema();
+
+    this.engine = engine;
+    return engine;
   }
 
   /**
