@@ -29,8 +29,15 @@ export function scrubSecrets(s: string): string {
   return s
     // Redact Bearer tokens: "Bearer <token>" → "Bearer [REDACTED]"
     .replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/g, 'Bearer [REDACTED]')
-    // Redact sk-... API key patterns (OpenAI style)
+    // Redact Anthropic API keys: sk-ant-api<NN>-... (MEDIUM-3 fix)
+    .replace(/\bsk-ant-api\d\d-[A-Za-z0-9\-_]{10,}/g, 'sk-ant-[REDACTED]')
+    // Redact sk-... API key patterns (OpenAI style — must come AFTER Anthropic pattern
+    // because Anthropic keys also start with sk- and the more-specific pattern fires first)
     .replace(/\bsk-[A-Za-z0-9\-_]{4,}/g, 'sk-[REDACTED]')
+    // Redact Google API keys: AIza<35 chars> (MEDIUM-3 fix)
+    .replace(/\bAIza[A-Za-z0-9\-_]{35}/g, 'AIza[REDACTED]')
+    // Redact Postgres/PostgreSQL DSN passwords: postgres://user:PASSWORD@host (MEDIUM-3 fix)
+    .replace(/(postgres(?:ql)?:\/\/[^:]+:)([^@]+)(@)/g, '$1[REDACTED]$3')
     // Redact JSON keypair field values
     .replace(/"keypair"\s*:\s*"[^"]*"/g, '"keypair":"[REDACTED]"')
     // Redact JSON jwt field values

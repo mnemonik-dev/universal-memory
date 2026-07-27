@@ -217,6 +217,65 @@ describe("CloudAdapter.migrateAttestationsTable()", () => {
   });
 });
 
+describe("CloudAdapter.list() — created_at null-guard (SF-1 / audit fix)", () => {
+  it("returns fallback ISO date when created_at is null (no 'Invalid Date')", async () => {
+    const pages = [{ slug: "null-date-slug", body: "content", created_at: null }];
+    const { adapter } = await makeCloudAdapterWithMock({ listPages: pages });
+
+    const results = await adapter.list({ limit: 5 });
+
+    expect(results[0].created_at).not.toBe("Invalid Date");
+    expect(isNaN(new Date(results[0].created_at).getTime())).toBe(false);
+  });
+
+  it("returns fallback ISO date when created_at is undefined", async () => {
+    const pages = [{ slug: "undef-date-slug", body: "content", created_at: undefined }];
+    const { adapter } = await makeCloudAdapterWithMock({ listPages: pages });
+
+    const results = await adapter.list({ limit: 5 });
+
+    expect(results[0].created_at).not.toBe("Invalid Date");
+  });
+});
+
+describe("CloudAdapter.getDbClient() — CRIT-2 fix", () => {
+  it("returns null when DATABASE_URL is not set", async () => {
+    const { CloudAdapter } = await import("./cloud.js");
+    // Suppress startup warning
+    const origStderr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = () => true;
+    const adapter = new CloudAdapter({ databaseUrl: undefined });
+    process.stderr.write = origStderr;
+
+    const client = await adapter.getDbClient();
+    expect(client).toBeNull();
+  });
+
+  it("returns DbClient object with query() when engine is available", async () => {
+    const { adapter, mockEngine } = await makeCloudAdapterWithMock();
+    // Wire executeRaw to return rows
+    (mockEngine.executeRaw as ReturnType<typeof mock>).mockImplementation(
+      async () => ({ rows: [{ attestation_id: "attest-x" }] })
+    );
+
+    const client = await adapter.getDbClient();
+    expect(client).not.toBeNull();
+    expect(typeof client!.query).toBe("function");
+  });
+
+  it("query() calls engine.executeRaw with sql and params", async () => {
+    const { adapter, mockEngine } = await makeCloudAdapterWithMock();
+    (mockEngine.executeRaw as ReturnType<typeof mock>).mockImplementation(
+      async () => ({ rows: [] })
+    );
+
+    const client = await adapter.getDbClient();
+    await client!.query("SELECT 1 WHERE $1", ["arg1"]);
+
+    expect(mockEngine.executeRaw).toHaveBeenCalledWith("SELECT 1 WHERE $1", ["arg1"]);
+  });
+});
+
 describe("CloudAdapter.sync()", () => {
   it("returns { pushed: 0 } (no-op for cloud adapter)", async () => {
     const { adapter } = await makeCloudAdapterWithMock();

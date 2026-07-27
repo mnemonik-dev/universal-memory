@@ -78,6 +78,31 @@ export class CloudAdapter implements StorageAdapter {
   }
 
   /**
+   * Return a DbClient that wraps the Postgres engine's executeRaw() method.
+   *
+   * This is used by signMemory() in server.ts to wire the idempotency check
+   * (D7: memory_attestations table) against the real Postgres pool. Previously
+   * db: null was passed, silently bypassing the idempotency check.
+   *
+   * Returns null when DATABASE_URL is not configured — signMemory() handles
+   * null gracefully by skipping the idempotency check (no crash, no DB call).
+   *
+   * The DbClient interface (from tools/sign.ts) requires:
+   *   query(sql: string, params?: unknown[]): Promise<{ rows: Record<string, unknown>[] }>
+   *
+   * gbrain's engine.executeRaw() signature:
+   *   executeRaw(sql: string, params?: unknown[]): Promise<{ rows: any[] }>
+   * — the shapes are compatible.
+   */
+  async getDbClient(): Promise<import("../tools/sign.js").DbClient | null> {
+    if (!this.databaseUrl) return null;
+    const engine = await this.getEngine();
+    return {
+      query: (sql: string, params?: unknown[]) => engine.executeRaw(sql, params),
+    };
+  }
+
+  /**
    * Create the memory_attestations table if it does not exist.
    *
    * Called at CloudAdapter init when DATABASE_URL is set (D7 from Task 6).
@@ -196,7 +221,11 @@ export class CloudAdapter implements StorageAdapter {
       id: p.slug,
       content: p.body ?? '',
       source: p.source_path ?? undefined,
-      created_at: (p.created_at instanceof Date ? p.created_at : new Date(p.created_at)).toISOString(),
+      // Defensive fallback: guard against null/undefined created_at from older schema rows
+      // (same guard as LocalAdapter.list() — both adapters must behave consistently)
+      created_at: p.created_at
+        ? (p.created_at instanceof Date ? p.created_at : new Date(p.created_at)).toISOString()
+        : new Date().toISOString(),
     }));
   }
 

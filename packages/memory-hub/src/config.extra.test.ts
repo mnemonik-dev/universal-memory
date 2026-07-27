@@ -146,6 +146,75 @@ describe("config.ts — dataDir resolution", () => {
   });
 });
 
+describe("config.ts — scrubSecrets() MEDIUM-3 new patterns", () => {
+  it("redacts Anthropic API key (sk-ant-api03-...)", () => {
+    const key = "sk-ant-api03-" + "A".repeat(48);
+    const result = scrubSecrets(`Authorization: Bearer ${key}`);
+    expect(result).not.toContain(key);
+    expect(result).toContain("[REDACTED]");
+  });
+
+  it("redacts Anthropic API key pattern with different variant numbers (sk-ant-api01-)", () => {
+    const key = "sk-ant-api01-" + "x".repeat(20);
+    const result = scrubSecrets(`key=${key}`);
+    expect(result).not.toContain(key);
+  });
+
+  it("redacts Google API key (AIza + 35 alphanumeric chars)", () => {
+    const key = "AIza" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r";
+    expect(key.length).toBe(4 + 35); // Verify test key has correct length
+    const result = scrubSecrets(`url?key=${key}`);
+    expect(result).not.toContain(key);
+    expect(result).toContain("AIza[REDACTED]");
+  });
+
+  it("does not redact short AIza strings (< 35 suffix chars)", () => {
+    const shortKey = "AIzaSHORTKEY";
+    const result = scrubSecrets(`key=${shortKey}`);
+    // Should not be redacted — too short for Google API key pattern
+    expect(result).toContain("AIzaSHORTKEY");
+  });
+
+  it("redacts Postgres DSN password (postgres://user:PASSWORD@host/db)", () => {
+    const dsn = "postgres://memory_user:supersecret123@postgres:5432/memory_db";
+    const result = scrubSecrets(`Connection failed: ${dsn}`);
+    expect(result).not.toContain("supersecret123");
+    expect(result).toContain("[REDACTED]");
+    // User and host should still be visible for debugging
+    expect(result).toContain("memory_user");
+    expect(result).toContain("@postgres");
+  });
+
+  it("redacts postgresql:// DSN password variant", () => {
+    const dsn = "postgresql://admin:hunter2@db.example.com/prod";
+    const result = scrubSecrets(dsn);
+    expect(result).not.toContain("hunter2");
+    expect(result).toContain("[REDACTED]");
+  });
+
+  it("Anthropic key is fully redacted (no key value leaks through)", () => {
+    // Anthropic key: sk-ant-api03-<...>
+    // Both the Anthropic-specific and generic sk- patterns fire — both redact.
+    // The security goal (no key leakage) is the correct assertion, not a specific output format.
+    const key = "sk-ant-api03-" + "z".repeat(20);
+    const result = scrubSecrets(key);
+    // Should NOT contain any part of the key value
+    expect(result).not.toContain(key);
+    // Should not contain the raw suffix chars
+    expect(result).not.toContain("z".repeat(20));
+    // Must contain [REDACTED] somewhere
+    expect(result).toContain("[REDACTED]");
+  });
+
+  it("preserves unrelated content around redacted DSN", () => {
+    const msg = "Connecting... postgres://user:pass@host/db — timeout after 30s";
+    const result = scrubSecrets(msg);
+    expect(result).toContain("Connecting...");
+    expect(result).toContain("timeout after 30s");
+    expect(result).not.toContain(":pass@");
+  });
+});
+
 describe("config.ts — no_key_no_ollama_starts_bm25_only_mode", () => {
   it("when no API keys set → mode is bm25-only (env dependent, skips if keys present)", () => {
     // This test validates the business rule: no keys → BM25-only.

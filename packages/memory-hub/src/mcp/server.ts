@@ -15,9 +15,12 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { StorageFactory } from "../storage/index.js";
+import { CloudAdapter } from "../storage/cloud.js";
+import { HybridAdapter } from "../storage/hybrid.js";
 import { IngestPipeline } from "../ingest/index.js";
 import { createMnemonikAdapter } from "../adapters/mnemonik.js";
 import { signMemory } from "../tools/sign.js";
+import type { DbClient } from "../tools/sign.js";
 import { verifyMemory } from "../tools/verify.js";
 import { mode, dataDir, scrubSecrets } from "../config.js";
 
@@ -32,6 +35,14 @@ const storage = await StorageFactory.create({
   databaseUrl: process.env.DATABASE_URL,
 });
 
+// Wire the real Postgres DbClient for signMemory() idempotency (D7 — CRIT-2 fix).
+// CloudAdapter and HybridAdapter expose getDbClient() which wraps engine.executeRaw().
+// LocalAdapter has no database; signMemory() handles null gracefully (skips check).
+let _dbClientForSigning: DbClient | null = null;
+if (storage instanceof CloudAdapter || storage instanceof HybridAdapter) {
+  _dbClientForSigning = await storage.getDbClient();
+}
+
 const ingest = new IngestPipeline(storage);
 
 // Mnemonik signing is optional. Requires MNEMONIC_IDENTITY + MNEMONIC_JWT env vars.
@@ -41,6 +52,19 @@ const ingest = new IngestPipeline(storage);
 const mnemonik = process.env.MNEMONIK_SIGNING === "true"
   ? createMnemonikAdapter()
   : null;
+
+// ─── Input validation helpers ────────────────────────────────────────────────
+// Clamp numeric tool arguments to safe bounds (MEDIUM-1 — OOM/DoS prevention).
+// gbrain's MAX_SEARCH_LIMIT is 100; list is capped at 100 as well.
+
+const MAX_SEARCH_TOP_K = 100;
+const MAX_LIST_LIMIT = 100;
+
+/** Clamp a numeric value to [min, max]. Returns defaultVal if value is not a number. */
+function clamp(value: unknown, min: number, max: number, defaultVal: number): number {
+  const n = typeof value === "number" ? value : defaultVal;
+  return Math.min(Math.max(min, n), max);
+}
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
@@ -159,11 +183,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       let attestationId: string | undefined;
       if (args.sign) {
         // Use signMemory() so idempotency and error handling are consistent.
+        // _dbClientForSigning is the real Postgres client in cloud/hybrid mode (D7 CRIT-2 fix).
+        // In local mode it is null — signMemory() handles null gracefully (skips idempotency check).
         const signed = await signMemory({
           content,
           tags: args.tags as string[] | undefined,
           adapter: mnemonik,
-          db: null, // Task 5 will inject db client
+          db: _dbClientForSigning,
         });
         attestationId = signed.attestationId;
       }
@@ -174,7 +200,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const results = await storage.search({
         query: args.query as string,
         userId: args.user_id as string | undefined,
-        topK: (args.top_k as number) ?? 10,
+        topK: clamp(args.top_k, 1, MAX_SEARCH_TOP_K, 10),
       });
       return { content: [{ type: "text", text: JSON.stringify(results) }] };
     }
@@ -200,18 +226,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     case "memory_sign": {
       // Delegates to signMemory() — handles idempotency via memory_attestations table,
       // null adapter (signing not configured / local mode), and SDK errors.
-      // db is null until Task 5 wires the Postgres pool; sign.ts handles null db gracefully.
+      // _dbClientForSigning is the real Postgres client in cloud/hybrid mode (D7 CRIT-2 fix).
       const result = await signMemory({
         content: args.content as string,
         tags: args.tags as string[] | undefined,
         adapter: mnemonik,
-        db: null, // Task 5 will inject the real db client here
+        db: _dbClientForSigning,
       });
       return { content: [{ type: "text", text: JSON.stringify(result) }] };
     }
 
     case "memory_list": {
-      const limit = (args.limit as number) ?? 20;
+      const limit = clamp(args.limit, 1, MAX_LIST_LIMIT, 20);
       const results = await storage.list({
         limit,
         userId: args.user_id as string | undefined,
