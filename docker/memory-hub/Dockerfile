@@ -14,7 +14,7 @@
 #     packages/memory-hub/     ← main package
 #     vendors/gbrain/          ← workspace dependency
 
-FROM oven/bun:1.3.10-slim AS base
+FROM oven/bun:1.3.10-slim
 
 WORKDIR /app
 

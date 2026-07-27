@@ -51,7 +51,7 @@ services:
       # Mode
       MEMORY_BACKEND: cloud
       # Postgres connection (service name resolves inside Docker network)
-      DATABASE_URL: postgres://${POSTGRES_USER:-memory}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-memory}
+      DATABASE_URL: postgres://${POSTGRES_USER:-memory}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-memory}
       # Bearer auth (nginx validates first; memory-hub validates as defense-in-depth per D4/D10)
       MEMORY_API_KEY: ${MEMORY_API_KEY:?MEMORY_API_KEY is required}
       # HTTP port (default 3456, must match nginx proxy_pass)
