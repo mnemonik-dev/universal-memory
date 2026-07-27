@@ -1,6 +1,7 @@
 [submodule "vendors/gbrain"]
 	path = vendors/gbrain
-	url = https://github.com/garrytan/gbrain.git
+	url = https://github.com/mnemonik-dev/gbrain.git
+	branch = universal-memory-pin
 [submodule "vendors/mnemonik"]
 	path = vendors/mnemonik
 	url = https://github.com/mnemonik-xyz/monorepo.git
