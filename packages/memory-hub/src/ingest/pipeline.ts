@@ -118,6 +118,14 @@ export class IngestPipeline {
   constructor(private storage: StorageAdapter) {}
 
   /**
+   * Alias for dispatch() — used by server.ts MCP handler for memory_capture.
+   * The name `add` reflects the MCP tool's intent: add content to memory.
+   */
+  async add(opts: DispatchOpts): Promise<DispatchResult> {
+    return this.dispatch(opts);
+  }
+
+  /**
    * Dispatch content to the appropriate handler, chunk it, and store it.
    * Returns { id, chunks } on success.
    * Throws ContentTooLargeError if content exceeds size limits.

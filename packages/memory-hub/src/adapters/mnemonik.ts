@@ -10,6 +10,10 @@
  *
  * Auth: JWT from OAuth 2.1 + PKCE flow via mnemonik.xyz/install
  * For headless/agent use: set MNEMONIC_JWT + MNEMONIC_IDENTITY env vars.
+ *
+ * Use `createMnemonikAdapter()` factory instead of `new MnemonikAdapter()` in
+ * application code — the factory returns null and logs a warning on JWT expiry
+ * or missing credentials rather than crashing at startup.
  */
 
 import {
@@ -79,5 +83,54 @@ export class MnemonikAdapter {
   async recall(query: string, topK = 5): Promise<RecallHit[]> {
     const result = await this.client.recall(query, { topK });
     return result.hits;
+  }
+}
+
+/**
+ * Factory that creates a MnemonikAdapter or returns null with a startup
+ * warning on any configuration / credential error.
+ *
+ * Motivation: the class constructor throws on expired JWT or missing env vars,
+ * which would crash the MCP server at startup. By using this factory the
+ * server starts cleanly and individual tool calls receive a descriptive error
+ * instead of a process crash.
+ *
+ * Per-call JWT expiry: the JWT is validated once here. If it has already
+ * expired at startup the caller receives null. JWTs that expire after server
+ * start are not re-checked here — the SDK will throw AuthError on the next
+ * network call, which the tool handler translates into an actionable error.
+ */
+export function createMnemonikAdapter(
+  overrides: { jwt?: string; identityJson?: string; mode?: "local" | "participate"; baseUrl?: string } = {}
+): MnemonikAdapter | null {
+  const jwt = overrides.jwt ?? process.env.MNEMONIC_JWT;
+  const identityJson = overrides.identityJson ?? process.env.MNEMONIC_IDENTITY;
+  const mode = overrides.mode ?? (process.env.MNEMONIC_MODE as "local" | "participate") ?? "local";
+  const baseUrl = overrides.baseUrl ?? process.env.MNEMONIC_BASE_URL ?? "https://mcp.mnemonik.xyz";
+
+  if (!jwt) {
+    process.stderr.write(
+      "[universal-memory] WARNING: MNEMONIC_JWT not set — Mnemonik signing disabled. " +
+      "Run `npx @mnemonik-xyz/cli login` to obtain a JWT.\n"
+    );
+    return null;
+  }
+  if (!identityJson) {
+    process.stderr.write(
+      "[universal-memory] WARNING: MNEMONIC_IDENTITY not set — Mnemonik signing disabled. " +
+      "Run `npx @mnemonik-xyz/cli init` to create a keypair.\n"
+    );
+    return null;
+  }
+
+  try {
+    return new MnemonikAdapter({ jwt, identityJson, mode, baseUrl });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      `[universal-memory] WARNING: Mnemonik JWT expired or invalid — signing disabled. ` +
+      `Renew with \`npx @mnemonik-xyz/cli login\`. Details: ${msg}\n`
+    );
+    return null;
   }
 }

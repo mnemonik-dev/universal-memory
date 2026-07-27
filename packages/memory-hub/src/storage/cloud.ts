@@ -7,9 +7,13 @@
  * The adapter satisfies the StorageAdapter interface so the server can start
  * in cloud mode and serve HTTP requests. Tool calls will return stub responses
  * until Task 5 wires the real gbrain Postgres engine.
+ *
+ * Task 6 addition: `migrateAttestationsTable()` creates the memory_attestations
+ * table (D7 idempotency store) at CloudAdapter init when DATABASE_URL is set.
+ * This method is intentionally idempotent (CREATE TABLE IF NOT EXISTS).
  */
 
-import type { StorageAdapter, SearchResult, SynthesisResult } from "./index.js";
+import type { StorageAdapter, SearchResult, SynthesisResult, ListResult } from "./index.js";
 
 export class CloudAdapter implements StorageAdapter {
   private databaseUrl: string | undefined;
@@ -36,6 +40,47 @@ export class CloudAdapter implements StorageAdapter {
     return this.databaseUrl;
   }
 
+  /**
+   * Create the memory_attestations table if it does not exist.
+   *
+   * Called at CloudAdapter init when DATABASE_URL is set (D7).
+   * Safe to call multiple times — CREATE TABLE IF NOT EXISTS is idempotent.
+   *
+   * The primary key is content_hash so the idempotency check in sign.ts can
+   * use an index seek (O(1)) rather than a sequential scan.
+   *
+   * Note: full Postgres wiring (via `postgres` package) lands in Task 5.
+   * This method accepts an optional db client argument for testability and
+   * will be wired to the real pool in Task 5.
+   */
+  async migrateAttestationsTable(db?: { query(sql: string): Promise<unknown> }): Promise<void> {
+    if (!db && !this.databaseUrl) {
+      // No DB available — skip silently (startup path before Task 5 wiring)
+      return;
+    }
+
+    const sql = `
+      CREATE TABLE IF NOT EXISTS memory_attestations (
+        content_hash   TEXT        NOT NULL,
+        attestation_id TEXT        NOT NULL,
+        signed_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        status         TEXT        NOT NULL DEFAULT 'signed',
+        PRIMARY KEY (content_hash)
+      )
+    `;
+
+    if (db) {
+      await db.query(sql);
+      return;
+    }
+
+    // When a real Postgres client is wired in Task 5, this branch runs.
+    // For now log that the migration would run.
+    process.stderr.write(
+      "[universal-memory] INFO: memory_attestations migration scheduled (Task 5 will wire Postgres client).\n"
+    );
+  }
+
   async search(_opts: { query: string; userId?: string; topK: number }): Promise<SearchResult[]> {
     this.requireDb();
     // TODO (Task 5): wire gbrain Postgres engine hybridSearch()
@@ -59,6 +104,24 @@ export class CloudAdapter implements StorageAdapter {
     // TODO (Task 5): wire engine.upsertPage()
     throw new Error(
       "CloudAdapter.add() not yet implemented. " +
+      "Wire in Task 5 (memory_think + CloudAdapter)."
+    );
+  }
+
+  async list(_opts: { limit: number; userId?: string }): Promise<ListResult[]> {
+    this.requireDb();
+    // TODO (Task 5): wire gbrain Postgres engine listPages()
+    throw new Error(
+      "CloudAdapter.list() not yet implemented. " +
+      "Wire in Task 5 (memory_think + CloudAdapter)."
+    );
+  }
+
+  async delete(_opts: { id: string; userId?: string }): Promise<void> {
+    this.requireDb();
+    // TODO (Task 5): wire engine.deletePage()
+    throw new Error(
+      "CloudAdapter.delete() not yet implemented. " +
       "Wire in Task 5 (memory_think + CloudAdapter)."
     );
   }

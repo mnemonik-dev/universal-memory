@@ -4,7 +4,7 @@
  * Git-backed: memories are markdown files in gitDir, PGLite is the search index.
  */
 
-import type { StorageAdapter, SearchResult, SynthesisResult } from "./index.js";
+import type { StorageAdapter, SearchResult, SynthesisResult, ListResult } from "./index.js";
 import { mode } from "../config.js";
 import { runThink } from "gbrain/think";
 import type { ParsedCitation } from "gbrain/think";
@@ -83,6 +83,41 @@ export class LocalAdapter implements StorageAdapter {
   }): Promise<void> {
     const engine = await this.getEngine();
     await engine.upsert({ id, content, source, userId, metadata: signature ? { signature } : undefined });
+  }
+
+  /**
+   * List stored memories, most recent first.
+   * Delegates to gbrain engine.listPages() with a limit filter.
+   */
+  async list({ limit, userId }: { limit: number; userId?: string }): Promise<ListResult[]> {
+    const engine = await this.getEngine();
+    const pages = await engine.listPages({
+      limit,
+      sort: 'updated_desc',
+      ...(userId ? { sourceId: userId } : {}),
+    });
+    return pages.map((p: any) => ({
+      id: p.slug,
+      content: p.body ?? '',
+      source: p.source_path ?? undefined,
+      created_at: (p.created_at instanceof Date ? p.created_at : new Date(p.created_at)).toISOString(),
+    }));
+  }
+
+  /**
+   * Delete a stored memory by id (slug).
+   * Throws an error with code 'not_found' if the id doesn't exist.
+   */
+  async delete({ id }: { id: string; userId?: string }): Promise<void> {
+    const engine = await this.getEngine();
+    // getPage returns null when the page doesn't exist
+    const page = await engine.getPage(id);
+    if (!page) {
+      const err = new Error(`Memory not found: ${id}`);
+      (err as any).code = 'not_found';
+      throw err;
+    }
+    await engine.deletePage(id);
   }
 
   async clear({ userId }: { userId: string }): Promise<void> {

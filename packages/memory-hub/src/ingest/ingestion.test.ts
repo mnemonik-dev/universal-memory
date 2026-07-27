@@ -41,6 +41,28 @@ class InMemoryStorage implements StorageAdapter {
     return { answer: "No synthesis in mock.", citations: [], gaps: [] };
   }
 
+  async list(opts: { limit: number; userId?: string }): Promise<Array<{ id: string; content: string; source?: string; created_at: string }>> {
+    const filtered = opts.userId
+      ? this.entries.filter((e) => e.userId === opts.userId)
+      : this.entries;
+    return filtered.slice(0, opts.limit).map((e) => ({
+      id: e.id,
+      content: e.content,
+      source: e.source,
+      created_at: new Date().toISOString(),
+    }));
+  }
+
+  async delete(opts: { id: string }): Promise<void> {
+    const idx = this.entries.findIndex((e) => e.id === opts.id);
+    if (idx === -1) {
+      const err = new Error(`Memory not found: ${opts.id}`);
+      (err as any).code = "not_found";
+      throw err;
+    }
+    this.entries.splice(idx, 1);
+  }
+
   async clear(opts: { userId: string }): Promise<void> {
     this.entries = this.entries.filter((e) => e.userId !== opts.userId);
   }

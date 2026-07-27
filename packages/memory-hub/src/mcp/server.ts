@@ -16,7 +16,9 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { StorageFactory } from "../storage/index.js";
 import { IngestPipeline } from "../ingest/index.js";
-import { MnemonikAdapter } from "../adapters/mnemonik.js";
+import { createMnemonikAdapter } from "../adapters/mnemonik.js";
+import { signMemory } from "../tools/sign.js";
+import { verifyMemory } from "../tools/verify.js";
 import { mode, dataDir, scrubSecrets } from "../config.js";
 
 const server = new Server(
@@ -34,10 +36,10 @@ const ingest = new IngestPipeline(storage);
 
 // Mnemonik signing is optional. Requires MNEMONIC_IDENTITY + MNEMONIC_JWT env vars.
 // Run `npx @mnemonik-xyz/cli init && npx @mnemonik-xyz/cli login` to set up.
+// createMnemonikAdapter() returns null with a startup warning on missing/expired JWT
+// instead of crashing the server process.
 const mnemonik = process.env.MNEMONIK_SIGNING === "true"
-  ? new MnemonikAdapter({
-      mode: (process.env.MNEMONIC_MODE as "local" | "participate") ?? "local",
-    })
+  ? createMnemonikAdapter()
   : null;
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -106,6 +108,30 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: "memory_list",
+      description: "List stored memories, most recent first. Returns up to limit entries (default: 20).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "Maximum number of entries to return (default: 20)" },
+          user_id: { type: "string", description: "User scope filter" },
+        },
+        required: [],
+      },
+    },
+    {
+      name: "memory_delete",
+      description: "Delete a specific memory entry by id. Returns { status: 'deleted' } on success or an error object if not found.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "The id of the memory entry to delete" },
+          user_id: { type: "string", description: "User scope filter" },
+        },
+        required: ["id"],
+      },
+    },
+    {
       name: "memory_sync",
       description: "Sync local PGLite brain to cloud Postgres for cross-device access. Pushes all local memories not yet in cloud.",
       inputSchema: {
@@ -114,18 +140,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           direction: { type: "string", enum: ["push", "pull", "bidirectional"], description: "Sync direction (default: push)" },
         },
         required: [],
-      },
-    },
-    {
-      name: "memory_clear",
-      description: "Remove all memories for a user or scope. Irreversible unless git-backed storage is used.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          user_id: { type: "string", description: "User scope to clear" },
-          confirm: { type: "boolean", description: "Must be true to execute" },
-        },
-        required: ["user_id", "confirm"],
       },
     },
   ],
@@ -143,8 +157,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         userId: args.user_id as string | undefined,
       });
       let attestationId: string | undefined;
-      if (args.sign && mnemonik) {
-        const signed = await mnemonik.sign(content, args.tags as string[] | undefined);
+      if (args.sign) {
+        // Use signMemory() so idempotency and error handling are consistent.
+        const signed = await signMemory({
+          content,
+          tags: args.tags as string[] | undefined,
+          adapter: mnemonik,
+          db: null, // Task 5 will inject db client
+        });
         attestationId = signed.attestationId;
       }
       return { content: [{ type: "text", text: JSON.stringify({ status: "captured", id: result.id, chunks: result.chunks, attestationId }) }] };
@@ -168,38 +188,56 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     case "memory_verify": {
-      if (!mnemonik) {
-        return { content: [{ type: "text", text: JSON.stringify({ error: "Set MNEMONIK_SIGNING=true + MNEMONIC_IDENTITY + MNEMONIC_JWT to enable" }) }] };
-      }
-      // attestation_id is the ID returned by mnemonic_sign_memory / memory_capture with sign:true
-      const result = await mnemonik.verify(args.attestation_id as string);
-      // result: { status: 'verified'|'tampered'|'not_found', signer?, arweaveTx?, solanaTx? }
+      // Delegates to verifyMemory() — handles null adapter (signing not configured)
+      // and translates SDK errors into user-facing messages.
+      const result = await verifyMemory({
+        attestationId: args.attestation_id as string,
+        adapter: mnemonik,
+      });
       return { content: [{ type: "text", text: JSON.stringify(result) }] };
     }
 
     case "memory_sign": {
-      if (!mnemonik) {
-        return { content: [{ type: "text", text: JSON.stringify({ error: "Set MNEMONIK_SIGNING=true + MNEMONIC_IDENTITY + MNEMONIC_JWT to enable" }) }] };
-      }
-      // Sign raw content directly via @mnemonik-xyz/sdk client.signMemory()
-      const result = await mnemonik.sign(
-        args.content as string,
-        args.tags as string[] | undefined
-      );
+      // Delegates to signMemory() — handles idempotency via memory_attestations table,
+      // null adapter (signing not configured / local mode), and SDK errors.
+      // db is null until Task 5 wires the Postgres pool; sign.ts handles null db gracefully.
+      const result = await signMemory({
+        content: args.content as string,
+        tags: args.tags as string[] | undefined,
+        adapter: mnemonik,
+        db: null, // Task 5 will inject the real db client here
+      });
       return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    }
+
+    case "memory_list": {
+      const limit = (args.limit as number) ?? 20;
+      const results = await storage.list({
+        limit,
+        userId: args.user_id as string | undefined,
+      });
+      return { content: [{ type: "text", text: JSON.stringify(results) }] };
+    }
+
+    case "memory_delete": {
+      const id = args.id as string;
+      try {
+        await storage.delete({ id, userId: args.user_id as string | undefined });
+        return { content: [{ type: "text", text: JSON.stringify({ status: "deleted" }) }] };
+      } catch (e: unknown) {
+        // Return structured error rather than crashing on not-found
+        const code = (e as any)?.code;
+        const message = e instanceof Error ? e.message : String(e);
+        if (code === "not_found") {
+          return { content: [{ type: "text", text: JSON.stringify({ error: "not_found", id }) }] };
+        }
+        return { content: [{ type: "text", text: JSON.stringify({ error: message }) }] };
+      }
     }
 
     case "memory_sync": {
       const result = await storage.sync({ direction: (args.direction as string) ?? "push" });
       return { content: [{ type: "text", text: JSON.stringify(result) }] };
-    }
-
-    case "memory_clear": {
-      if (!args.confirm) {
-        return { content: [{ type: "text", text: JSON.stringify({ error: "confirm must be true" }) }] };
-      }
-      await storage.clear({ userId: args.user_id as string });
-      return { content: [{ type: "text", text: JSON.stringify({ status: "cleared", user_id: args.user_id }) }] };
     }
 
     default:

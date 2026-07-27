@@ -18,6 +18,8 @@ function createMockStorage(): StorageAdapter {
     add: mock(async () => {}),
     search: mock(async () => []),
     synthesize: mock(async () => ({ answer: "", citations: [], gaps: [] })),
+    list: mock(async () => []),
+    delete: mock(async () => {}),
     clear: mock(async () => {}),
     sync: mock(async () => ({})),
   };

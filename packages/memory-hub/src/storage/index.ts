@@ -18,10 +18,20 @@ export interface SynthesisResult {
   gaps: string[];
 }
 
+/** Output shape for the memory_list MCP tool. */
+export interface ListResult {
+  id: string;
+  content: string;
+  source?: string;
+  created_at: string;
+}
+
 export interface StorageAdapter {
   search(opts: { query: string; userId?: string; topK: number }): Promise<SearchResult[]>;
   synthesize(opts: { question: string; userId?: string }): Promise<SynthesisResult>;
   add(opts: { id: string; content: string; source?: string; userId?: string; signature?: string }): Promise<void>;
+  list(opts: { limit: number; userId?: string }): Promise<ListResult[]>;
+  delete(opts: { id: string; userId?: string }): Promise<void>;
   clear(opts: { userId: string }): Promise<void>;
   sync(opts: { direction: string }): Promise<{ pushed?: number; pulled?: number }>;
 }
