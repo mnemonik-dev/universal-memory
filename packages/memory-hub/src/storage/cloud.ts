@@ -1,19 +1,24 @@
 /**
  * CloudAdapter — Postgres + pgvector backend for cloud mode.
  *
- * STUB: This is a placeholder implementation for Task 2 (HTTP transport).
- * Full implementation is in Task 5 (wire memory_think + CloudAdapter).
+ * Uses gbrain's Postgres engine (createEngine + PostgresEngine) to store and
+ * retrieve memories in a managed Postgres database. Designed for multi-device
+ * access via the HTTP MCP transport (cloud mode).
  *
- * The adapter satisfies the StorageAdapter interface so the server can start
- * in cloud mode and serve HTTP requests. Tool calls will return stub responses
- * until Task 5 wires the real gbrain Postgres engine.
+ * Constructor accepts an undefined DATABASE_URL and defers the actual
+ * connection error to the first tool call. This allows the HTTP server to
+ * start and serve auth checks even when DATABASE_URL is not yet set (D2
+ * from Task 2 decisions).
  *
- * Task 6 addition: `migrateAttestationsTable()` creates the memory_attestations
- * table (D7 idempotency store) at CloudAdapter init when DATABASE_URL is set.
- * This method is intentionally idempotent (CREATE TABLE IF NOT EXISTS).
+ * `migrateAttestationsTable()` creates the memory_attestations table (D7
+ * idempotency store) added by Task 6. Retained here and wired to the real
+ * Postgres engine when the engine is initialised.
  */
 
 import type { StorageAdapter, SearchResult, SynthesisResult, ListResult } from "./index.js";
+import { mode } from "../config.js";
+import { runThink } from "gbrain/think";
+import type { ParsedCitation } from "gbrain/think";
 
 export class CloudAdapter implements StorageAdapter {
   private databaseUrl: string | undefined;
