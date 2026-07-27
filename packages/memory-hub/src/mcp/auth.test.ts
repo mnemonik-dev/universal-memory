@@ -8,7 +8,7 @@
  *   - timing_safe_comparison_used
  */
 
-import { describe, it, expect, beforeAll, afterAll, mock, spyOn } from "bun:test";
+import { describe, it, expect, spyOn } from "bun:test";
 import { validateBearer, create401Response } from "./auth.js";
 import * as crypto from "node:crypto";
 

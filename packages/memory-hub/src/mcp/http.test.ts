@@ -34,7 +34,7 @@ describe("mcp/http.ts", () => {
 
       // Start on a random port to avoid conflicts
       server = await startHttpServer({
-        mcpServer: createMockMcpServer(),
+        mcpServer: await createMockMcpServerAsync(),
         port: 0,
         apiKey: "secret-key",
       });
@@ -54,7 +54,7 @@ describe("mcp/http.ts", () => {
       const { startHttpServer } = await import("./http.js");
 
       server = await startHttpServer({
-        mcpServer: createMockMcpServer(),
+        mcpServer: await createMockMcpServerAsync(),
         port: 0,
         apiKey: "secret-key",
       });
@@ -75,7 +75,7 @@ describe("mcp/http.ts", () => {
       const { startHttpServer } = await import("./http.js");
 
       server = await startHttpServer({
-        mcpServer: createMockMcpServer(),
+        mcpServer: await createMockMcpServerAsync(),
         port: 0,
         apiKey: "secret-key",
       });
@@ -98,7 +98,7 @@ describe("mcp/http.ts", () => {
       const { startHttpServer } = await import("./http.js");
 
       server = await startHttpServer({
-        mcpServer: createMockMcpServer(),
+        mcpServer: await createMockMcpServerAsync(),
         port: 0,
         apiKey: "secret-key",
       });
@@ -115,10 +115,9 @@ describe("mcp/http.ts", () => {
  * Creates a minimal mock MCP Server that can be connected to a transport.
  * We use the real MCP SDK Server to ensure transport integration works.
  */
-function createMockMcpServer() {
-  // Lazy import to avoid top-level await
-  const { Server } = require("@modelcontextprotocol/sdk/server/index.js");
-  const { ListToolsRequestSchema } = require("@modelcontextprotocol/sdk/types.js");
+async function createMockMcpServerAsync() {
+  const { Server } = await import("@modelcontextprotocol/sdk/server/index.js");
+  const { ListToolsRequestSchema } = await import("@modelcontextprotocol/sdk/types.js");
 
   const mcpServer = new Server(
     { name: "test-server", version: "0.0.0" },
