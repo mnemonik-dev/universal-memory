@@ -13,17 +13,24 @@
     "./ingest": "./src/ingest/index.ts"
   },
   "dependencies": {
-    "gbrain": "workspace:../../vendors/gbrain",
     "@mnemonik-xyz/sdk": "latest",
-    "@modelcontextprotocol/sdk": "^1.0.0"
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@mozilla/readability": "^0.6.0",
+    "gbrain": "workspace:../../vendors/gbrain",
+    "jsdom": "^29.1.1",
+    "pdf-parse": "^2.4.5"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
-    "@types/node": "^20.0.0"
+    "@types/jsdom": "^28.0.3",
+    "@types/mozilla__readability": "^0.4.2",
+    "@types/node": "^20.0.0",
+    "@types/pdf-parse": "^1.1.5",
+    "typescript": "^5.0.0"
   },
   "scripts": {
     "dev": "bun --watch src/mcp/server.ts",
     "start": "bun src/mcp/server.ts",
+    "test": "bun test src/",
     "setup": "bun run src/setup.ts",
     "typecheck": "tsc --noEmit"
   }
