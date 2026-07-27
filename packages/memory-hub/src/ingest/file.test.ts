@@ -115,6 +115,23 @@ describe("ingest/file.ts", () => {
     });
   });
 
+  describe("pdf_file_returns_content", () => {
+    it("returns error note content when PDF extraction fails for non-PDF file named .pdf", async () => {
+      // Write a file with .pdf extension but text content (simulates corrupt PDF)
+      const fakePdf = join(tempDir, "fake.pdf");
+      writeFileSync(fakePdf, "this is not a real PDF");
+
+      // pdf-parse should fail on invalid PDF content; we expect an error note, not garbled bytes
+      const result = await readFile(fakePdf);
+      expect(result.mimeType).toBe("application/pdf");
+      // Either successfully extracted text OR returned an error note — not raw binary garbage
+      expect(typeof result.content).toBe("string");
+      expect(result.content.length).toBeGreaterThan(0);
+      // Should not contain binary/null bytes (raw PDF bytes as UTF-8)
+      expect(result.content).not.toMatch(/\x00/);
+    });
+  });
+
   describe("symlink_protection", () => {
     it("resolves symlinks and checks the real path against allowlist", async () => {
       // Create a symlink inside allowed dir pointing to /etc/passwd

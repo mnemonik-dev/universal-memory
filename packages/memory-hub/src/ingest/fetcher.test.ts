@@ -92,6 +92,18 @@ describe("ingest/fetcher.ts", () => {
       await expect(fetchUrl("http://[::1]/api")).rejects.toThrow(SsrfBlockedError);
     });
 
+    it("throws SsrfBlockedError for fc00:: (IPv6 ULA private range fc00::/7)", async () => {
+      await expect(fetchUrl("http://[fc00::1]/api")).rejects.toThrow(SsrfBlockedError);
+    });
+
+    it("throws SsrfBlockedError for fd00:: (IPv6 ULA private range fd00::/8 within fc00::/7)", async () => {
+      await expect(fetchUrl("http://[fd00::1]/api")).rejects.toThrow(SsrfBlockedError);
+    });
+
+    it("throws SsrfBlockedError for fe80:: (IPv6 link-local fe80::/10)", async () => {
+      await expect(fetchUrl("http://[fe80::1]/api")).rejects.toThrow(SsrfBlockedError);
+    });
+
     it("throws SsrfBlockedError for 127.x.x.x range", async () => {
       await expect(fetchUrl("http://127.0.0.2/api")).rejects.toThrow(SsrfBlockedError);
     });
@@ -170,20 +182,17 @@ describe("ingest/fetcher.ts", () => {
 
     it("throws on redirect limit exceeded (> 3 redirects)", async () => {
       let callCount = 0;
+      // fetchUrl follows redirects manually with redirect: 'manual'.
+      // Each 302 increments redirectsFollowed. On the 4th redirect attempt
+      // (redirectsFollowed === 3 === MAX_REDIRECTS), it throws before fetching.
+      // So mock returns 302 for calls 1–3 (redirectsFollowed goes 0→1→2→3),
+      // and the 4th redirect triggers the throw — the mock's 4th return is never reached.
       global.fetch = mock(async (url: string | URL | Request, init?: RequestInit) => {
-        // The fetch itself is called with redirect: 'manual' or similar in real impl
-        // For this test, we simulate that redirect: 'error' throws after 3 redirects
-        // Actually: with redirect: 'error', fetch throws on any redirect
-        // Let's mock: first call returns redirect, fetchUrl should re-fetch manually
-        // Real implementation tracks redirects and throws when > 3
         callCount++;
-        if (callCount <= 4) {
-          return new Response(null, {
-            status: 302,
-            headers: { "Location": "https://example.com/next" },
-          });
-        }
-        return new Response("<html><body><p>Final</p></body></html>", { status: 200 });
+        return new Response(null, {
+          status: 302,
+          headers: { "Location": "https://example.com/next" },
+        });
       }) as typeof global.fetch;
 
       await expect(fetchUrl("https://example.com/redirect")).rejects.toThrow(/redirect/i);

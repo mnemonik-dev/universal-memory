@@ -72,7 +72,10 @@ describe("ingestion", () => {
     const storage = new InMemoryStorage();
     const pipeline = new IngestPipeline(storage);
 
-    // Spy on fetchUrl to avoid real network call
+    // Spy on fetchUrl to avoid real network call.
+    // This works because pipeline.ts imports fetchUrl from the same module path
+    // as fetcherMod here, so both reference the same module cache entry.
+    // If pipeline.ts ever switches to a different import path, the spy must be updated.
     const fetchUrlSpy = spyOn(fetcherMod, "fetchUrl").mockResolvedValue(
       "# Fetched Article\n\nThis article discusses universal memory systems."
     );

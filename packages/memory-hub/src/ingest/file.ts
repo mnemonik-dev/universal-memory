@@ -160,10 +160,15 @@ export async function readFile(
   // Step 1: Resolve to absolute (expand ~ first)
   const absolutePath = resolveInputPath(filePath);
 
-  // Step 2: Check if file exists before realpath (better error message)
+  // Step 2: Pre-check allowlist on unresolved path before existsSync.
+  // This prevents path-existence oracle: a caller outside the allowlist should
+  // not be able to distinguish "file not found" from "path not allowed" for
+  // paths like /etc/passwd (which reveals whether the file exists).
+  // NOTE: This check is defense-in-depth; the security-effective check is
+  // step 4 (post-realpath). Both checks are needed — see step 4 rationale.
+  assertPathAllowed(absolutePath, allowedDirs);
+
   if (!existsSync(absolutePath)) {
-    // Still check allowlist first — don't reveal whether /etc/passwd exists
-    assertPathAllowed(absolutePath, allowedDirs);
     throw new Error(`File not found: ${absolutePath}`);
   }
 
@@ -177,8 +182,12 @@ export async function readFile(
     );
   }
 
-  // Step 4: Validate REAL path (after symlink resolution) against allowlist
-  // This prevents: symlink in ~/notes → /etc/passwd
+  // Step 4: Validate REAL path (after symlink resolution) against allowlist.
+  // This is the security-effective check. Without it, a symlink INSIDE the
+  // allowed dir pointing OUTSIDE (e.g. ~/notes/evil → /etc/passwd) would
+  // bypass the step-2 check (~/notes/evil passes the pre-check, but after
+  // realpath it resolves to /etc/passwd which is outside ~/). Both checks
+  // are required: step 2 for the path-oracle defense, step 4 for symlink safety.
   assertPathAllowed(realPath, allowedDirs);
 
   const ext = extname(realPath).toLowerCase();
@@ -197,18 +206,33 @@ export async function readFile(
   // ── PDF: extract text via pdf-parse ─────────────────────────────────────────
   if (ext === ".pdf") {
     try {
-      // Dynamic import: pdf-parse is an optional dep; fail gracefully if missing
-      const pdfParse = (await import("pdf-parse")).default;
+      // pdf-parse v2 exports a PDFParse class (not a default function).
+      // Use PDFParse directly: new PDFParse(buffer) → instance with .render() method.
+      const { PDFParse } = await import("pdf-parse") as any;
+      if (typeof PDFParse !== "function") {
+        throw new Error("pdf-parse module did not export PDFParse");
+      }
       const buf = readFileSync(realPath);
-      const data = await pdfParse(buf);
+      // PDFParse v2 API: pass { data: Uint8Array } in the constructor options,
+      // then call .getText() with no arguments to extract all page text.
+      const parser = new PDFParse({ data: new Uint8Array(buf) });
+      const text: string = await parser.getText();
       return {
-        content: data.text,
+        content: text,
         mimeType: "application/pdf",
       };
     } catch (e) {
-      // If pdf-parse is not available or PDF is corrupt, return raw text attempt
-      const text = readFileSync(realPath, "utf-8");
-      return { content: text, mimeType: "application/pdf" };
+      // pdf-parse unavailable or PDF is corrupt/encrypted. Do NOT return raw bytes
+      // (binary PDF content is unreadable garbage as UTF-8 and bloats the index).
+      // Return an error note so the caller knows extraction failed.
+      const reason = (e instanceof Error ? e.message : String(e)).slice(0, 200);
+      process.stderr.write(
+        `[universal-memory] PDF text extraction failed for ${realPath}: ${reason}\n`
+      );
+      return {
+        content: `[PDF extraction failed for ${realPath}: ${reason}]`,
+        mimeType: "application/pdf",
+      };
     }
   }
 
