@@ -12,6 +12,8 @@ does not reset between sessions when you use these tools.
 | `memory_search` | Before any task — load prior context | `{ query, top_k? }` | `[{ id, content, score }]` |
 | `memory_capture` | After research, decisions, or completed tasks | `{ content, source?, tags? }` | `{ id, chunks }` |
 | `memory_think` | When you need synthesis across multiple memories | `{ question }` | `{ answer, citations, gaps }` |
+| `memory_sign` | To create a verifiable Ed25519 attestation for a stored memory | `{ id }` | `{ attestationId, contentHash }` |
+| `memory_verify` | To verify the authenticity of a signed memory | `{ attestation_id }` | `{ verified, signer, timestamp }` |
 | `memory_list` | To browse recent captures | `{ limit? }` | `[{ id, content, created_at }]` |
 | `memory_delete` | To remove outdated or incorrect entries | `{ id }` | `{ status }` |
 

@@ -90,15 +90,73 @@ universal-memory/
 
 ## Quick Start
 
+### Prerequisites
+
+- **Bun ≥ 1.3.10** — required (no Node.js, no sudo). Install:
+  ```bash
+  curl -fsSL https://bun.sh/install | bash
+  ```
+
+### Local mode (PGLite, zero server setup)
+
 ```bash
-# Install
-cd vendors/gbrain && bun install
+# 1. Clone and install
+git clone https://github.com/mnemonik-dev/universal-memory.git
+cd universal-memory
+cd vendors/gbrain && bun install && cd ../..
+cd packages/memory-hub && bun install && cd ../..
 
-# Start local memory hub (PGLite, no server required)
-bun run packages/memory-hub/src/mcp/server.ts
+# 2. Start the MCP server (stdio transport, PGLite storage)
+MEMORY_BACKEND=local bun run packages/memory-hub/src/mcp/server.ts
 
-# Configure in Claude Code (~/.claude/settings.json)
-# "mcpServers": { "universal-memory": { "command": "bun", "args": ["..."] } }
+# 3. Configure Claude Code — add to ~/.claude/settings.json:
+# {
+#   "mcpServers": {
+#     "universal-memory": {
+#       "command": "bun",
+#       "args": ["run", "/path/to/universal-memory/packages/memory-hub/src/mcp/server.ts"],
+#       "env": { "MEMORY_BACKEND": "local", "OPENAI_API_KEY": "<your-key>" }
+#     }
+#   }
+# }
+
+# 4. Verify in Claude Code
+# /mcp  → should list 7 tools (memory_capture, memory_search, memory_think,
+#          memory_sign, memory_verify, memory_list, memory_delete)
+
+# 5. First capture
+# memory_capture({ content: "Hello, memory!", tags: ["test"] })
+
+# 6. First search
+# memory_search({ query: "Hello" })  → returns the entry above
+```
+
+> **Optional: Ollama for local embeddings (no API key needed)**
+> ```bash
+> ollama serve
+> ollama pull nomic-embed-text
+> # Then set OLLAMA_BASE_URL=http://localhost:11434 instead of OPENAI_API_KEY
+> MEMORY_BACKEND=local OLLAMA_BASE_URL=http://localhost:11434 \
+>   bun run packages/memory-hub/src/mcp/server.ts
+> ```
+> Without any LLM key the server starts in BM25-only mode (keyword search, no synthesis).
+
+### Cloud mode (Docker Compose, shared across all clients)
+
+```bash
+# 1. Copy and fill environment variables
+cp .env.example .env
+# Edit .env — set POSTGRES_PASSWORD, MEMORY_API_KEY (openssl rand -hex 32), and one LLM key
+
+# 2. Start memory-hub + postgres
+docker compose up memory-hub postgres -d
+
+# 3. Verify (internal, no nginx needed for local testing)
+# Uncomment ports: "127.0.0.1:3456:3456" in docker-compose.yml, then:
+curl -H "Authorization: Bearer $MEMORY_API_KEY" http://localhost:3456/mcp
+# → {"jsonrpc":"2.0",...} (MCP initialize response)
+
+# 4. For HTTPS + nginx: see DEPLOY.md
 ```
 
 ## Client Configuration
