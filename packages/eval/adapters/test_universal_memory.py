@@ -303,8 +303,35 @@ class TestMetricsHelpers(unittest.TestCase):
         assert self.run._parse_date(None) is None
 
 
-# ── type alias for Any to avoid import in test file ──────────────────────────
-Any = object
+class TestAddOneEdgeCases(unittest.TestCase):
+    """Edge cases not covered by the main TestAddOne suite."""
+
+    def test_capture_returns_no_id_still_returns_success(self):
+        """
+        If memory_capture returns a result without 'id' (e.g., MCP error shape),
+        add_one() should still return { status: 'success' } and not crash.
+        The user_id entry in _user_ids is simply not populated.
+        """
+        client = MagicMock()
+        client.capture.return_value = {"error": "content_too_large"}  # no 'id' key
+        svc = _make_service(client)
+
+        result = svc.add_one("user_9", "Some content.", "2022-05-20T20:09:18Z")
+
+        assert result == {"status": "success"}
+        # No id tracked — user_ids entry not created
+        assert "user_9" not in svc._user_ids
+
+    def test_capture_returns_none_does_not_crash(self):
+        """capture() returning None (network error, etc.) should not crash add_one()."""
+        client = MagicMock()
+        client.capture.return_value = None
+        svc = _make_service(client)
+
+        result = svc.add_one("user_10", "Some content.", "")
+
+        assert result == {"status": "success"}
+
 
 if __name__ == "__main__":
     unittest.main()

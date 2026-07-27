@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import select
 import subprocess
 import sys
 import time
@@ -109,8 +110,7 @@ class _McpStdioClient:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError(f"MCP response timeout after {timeout}s. stderr tail: {self._stderr_lines[-5:]}")
-            # non-blocking read attempt with small sleep
-            import select
+            # non-blocking read with per-iteration timeout
             ready, _, _ = select.select([self._proc.stdout], [], [], min(remaining, 0.5))
             if ready:
                 byte = self._proc.stdout.read(1)
@@ -307,6 +307,14 @@ class UniversalMemoryService(MemoryService):
 
         Calls memory_search with top_k=5 (RecallAccuracy@5 metric).
         Formats memories with timestamp and content for the ANSWER_PROMPT template.
+
+        NOTE: User isolation is best-effort. memory_search returns global results
+        sorted by relevance score (not filtered by user_id at the MCP level).
+        Post-hoc client-side filtering is applied by matching the `tags` field.
+        If tag filtering removes all results (e.g., in BM25-only mode where tags
+        are not indexed for search-time filtering), falls back to unfiltered results.
+        This matches the behaviour of other RUMBA adapters that scope by user_id
+        via an external memory service's own user scoping mechanism.
         """
         results = self._client.search(message, top_k=self.top_k)
 
