@@ -107,7 +107,10 @@ describe("delete", () => {
       const storage = createMockStorage({ notFound: true });
 
       // handleDelete should never throw — it must catch and return an error object
-      await expect(handleDelete(storage, "missing-id")).resolves.toBeDefined();
+      // Stronger assertion: must return a not_found error, not { status: 'deleted' }
+      await expect(handleDelete(storage, "missing-id")).resolves.toMatchObject({
+        error: "not_found",
+      });
     });
 
     it("error object includes the missing id", async () => {

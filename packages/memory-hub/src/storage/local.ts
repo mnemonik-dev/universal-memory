@@ -100,7 +100,10 @@ export class LocalAdapter implements StorageAdapter {
       id: p.slug,
       content: p.body ?? '',
       source: p.source_path ?? undefined,
-      created_at: (p.created_at instanceof Date ? p.created_at : new Date(p.created_at)).toISOString(),
+      // Defensive fallback: guard against null/undefined created_at from older schema rows
+      created_at: p.created_at
+        ? (p.created_at instanceof Date ? p.created_at : new Date(p.created_at)).toISOString()
+        : new Date().toISOString(),
     }));
   }
 
