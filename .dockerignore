@@ -1,0 +1,35 @@
+# Docker build context exclusions
+# Prevents large/sensitive files from being sent to the Docker daemon.
+
+# Dependencies (reinstalled inside container)
+**/node_modules
+**/.bun
+
+# Lockfiles (copied explicitly in Dockerfile for better layer caching)
+# bun.lock is explicitly COPY'd — this entry is intentionally absent
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Logs + temporary files
+*.log
+/tmp
+
+# Development artifacts
+**/*.test.ts
+**/__tests__
+
+# Git
+.git
+.gitmodules
+
+# Documentation / research (not needed at runtime)
+docs/
+research/
+work/
+adapters/
+
+# Other packages (only memory-hub and vendors/gbrain are needed)
+packages/eval/

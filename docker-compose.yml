@@ -1,0 +1,87 @@
+# Universal Memory System — Docker Compose
+#
+# Provides: memory-hub (MCP server) + postgres (pgvector storage).
+# These services are independent from any Universal Paywall services and can be
+# started/stopped individually:
+#
+#   docker compose up memory-hub postgres -d
+#   docker compose up memory-hub -d --no-deps     # skip postgres (already running)
+#   docker compose stop memory-hub
+#
+# Environment variables: copy .env.example → .env and fill in required values.
+
+services:
+
+  # ─── Postgres with pgvector ────────────────────────────────────────────────
+  # pgvector/pgvector:pg16 ships with pgvector pre-installed.
+  # Used by memory-hub in cloud mode (MEMORY_BACKEND=cloud).
+  # Verify pgvector available: docker compose exec postgres psql -U $POSTGRES_USER -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-memory}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-memory}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Port is NOT exposed to the host — only accessible inside the Docker network.
+    # memory-hub connects via service name: postgres://memory:5432/memory
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-memory} -d ${POSTGRES_DB:-memory}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ─── Memory Hub (MCP server) ──────────────────────────────────────────────
+  # Bun-based MCP server. Cloud mode: HTTP on port 3456 (internal only).
+  # nginx proxies the memory. subdomain → memory-hub:3456 with Bearer auth.
+  memory-hub:
+    build:
+      context: .
+      dockerfile: docker/memory-hub/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Mode
+      MEMORY_BACKEND: cloud
+      # Postgres connection (service name resolves inside Docker network)
+      DATABASE_URL: postgres://${POSTGRES_USER:-memory}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-memory}
+      # Bearer auth (nginx validates first; memory-hub validates as defense-in-depth per D4/D10)
+      MEMORY_API_KEY: ${MEMORY_API_KEY:?MEMORY_API_KEY is required}
+      # HTTP port (default 3456, must match nginx proxy_pass)
+      MEMORY_HTTP_PORT: ${MEMORY_HTTP_PORT:-3456}
+      # LLM provider — at least one of these is required for semantic search + synthesis.
+      # Without any key, server starts in BM25-only mode (DEV-1).
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      # Mnemonik signing (optional, cloud only)
+      MNEMONIK_SIGNING: ${MNEMONIK_SIGNING:-false}
+      MNEMONIC_IDENTITY: ${MNEMONIC_IDENTITY:-}
+      MNEMONIC_JWT: ${MNEMONIC_JWT:-}
+      MNEMONIC_MODE: ${MNEMONIC_MODE:-local}
+      # SSRF / file ingestion allowlist (D11) — restrict to safe directories
+      MEMORY_ALLOWED_DIRS: ${MEMORY_ALLOWED_DIRS:-/tmp}
+    expose:
+      - "3456"
+    # Port is NOT published to host — nginx proxies it.
+    # Uncomment for local testing without nginx:
+    # ports:
+    #   - "127.0.0.1:3456:3456"
+    healthcheck:
+      test: ["CMD-SHELL", "bun -e \"fetch('http://localhost:${MEMORY_HTTP_PORT:-3456}/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  postgres_data:
+    driver: local
