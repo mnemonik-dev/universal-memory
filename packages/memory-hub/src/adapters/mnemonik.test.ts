@@ -16,8 +16,11 @@ describe("adapters/mnemonik.ts", () => {
       const stderrSpy = spyOn(process.stderr, "write");
 
       const adapter = createMnemonikAdapter({
-        jwt: "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjF9.invalid", // expired JWT (exp=1)
-        identityJson: JSON.stringify([1, 2, 3, 4]), // stub identity
+        jwt: "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjF9.invalid", // expired JWT (exp=1, signed_at=1970)
+        // Stub identity — parseJwtPayload() throws AuthError before Keypair.fromJSON()
+        // is reached (the constructor validates JWT first). This array is intentionally
+        // not a valid 64-byte Solana keypair.
+        identityJson: JSON.stringify([1, 2, 3, 4]),
       });
 
       expect(adapter).toBeNull();

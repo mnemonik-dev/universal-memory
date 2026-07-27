@@ -21,6 +21,7 @@ import {
   LocalSigner,
   Keypair,
   parseJwtPayload,
+  redactJWT,
   type SignMemoryResult,
   type VerifyResult,
   type RecallHit,
@@ -126,7 +127,9 @@ export function createMnemonikAdapter(
   try {
     return new MnemonikAdapter({ jwt, identityJson, mode, baseUrl });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    // redactJWT() prevents JWT-shaped strings from appearing in startup logs (D13).
+    const raw = err instanceof Error ? err.message : String(err);
+    const msg = redactJWT(raw);
     process.stderr.write(
       `[universal-memory] WARNING: Mnemonik JWT expired or invalid — signing disabled. ` +
       `Renew with \`npx @mnemonik-xyz/cli login\`. Details: ${msg}\n`

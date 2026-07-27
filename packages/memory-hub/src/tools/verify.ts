@@ -8,6 +8,7 @@
  * unchanged — callers receive { status: 'verified'|'tampered'|'not_found', ... }.
  */
 
+import { redactJWT } from "@mnemonik-xyz/sdk";
 import type { MnemonikAdapter } from "../adapters/mnemonik.js";
 import type { VerifyResult } from "@mnemonik-xyz/sdk";
 
@@ -39,7 +40,10 @@ export async function verifyMemory(input: VerifyMemoryInput): Promise<VerifyMemo
     const result = await adapter.verify(attestationId);
     return result as VerifyMemoryOutput;
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    // redactJWT() removes JWT-shaped strings from error messages before they
+    // reach the MCP caller (D13 — secrets must not leave the server boundary).
+    const raw = err instanceof Error ? err.message : String(err);
+    const msg = redactJWT(raw);
     return {
       status: "not_found",
       error: `Mnemonik verify failed — service may be unavailable. Details: ${msg}`,

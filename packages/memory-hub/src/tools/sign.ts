@@ -14,6 +14,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { redactJWT } from "@mnemonik-xyz/sdk";
 import type { MnemonikAdapter } from "../adapters/mnemonik.js";
 
 /** Minimal Postgres client interface (pg Pool or Bun's own SQL client). */
@@ -59,6 +60,13 @@ export function contentHashOf(content: string): string {
 export async function signMemory(input: SignMemoryInput): Promise<SignMemoryOutput> {
   const { content, tags, adapter, db } = input;
 
+  // ── Guard: empty content ──────────────────────────────────────────────────
+  // MnemonicClient.signMemory() throws UserError for empty content. Catching it
+  // here gives a clearer message than the generic 'service unavailable' fallback.
+  if (!content || !content.trim()) {
+    return { error: "content must not be empty" };
+  }
+
   // ── Guard: local mode (no adapter configured) ────────────────────────────
   if (!adapter) {
     return {
@@ -100,7 +108,10 @@ export async function signMemory(input: SignMemoryInput): Promise<SignMemoryOutp
   try {
     signResult = await adapter.sign(content, tags);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    // redactJWT() removes JWT-shaped strings from error messages before they
+    // reach the MCP caller (D13 — secrets must not leave the server boundary).
+    const raw = err instanceof Error ? err.message : String(err);
+    const msg = redactJWT(raw);
     return {
       error: `Mnemonik signing failed — service may be unavailable. Details: ${msg}`,
     };
@@ -108,15 +119,16 @@ export async function signMemory(input: SignMemoryInput): Promise<SignMemoryOutp
 
   // ── Store attestation in DB ───────────────────────────────────────────────
   if (db) {
-    // Use the content_hash from the server response when available (it's the
-    // server's canonical blake3 hash); fall back to our SHA-256 dedup hash.
-    const storedHash = signResult.contentHash ?? hash;
+    // Always use SHA-256 hash as the primary key / lookup key for idempotency (D7).
+    // The server may return a different hash (blake3) in signResult.contentHash —
+    // we do NOT use it as the dedup key because the SELECT above uses SHA-256.
+    // Using different hashes in SELECT vs INSERT would cause missed idempotency hits.
     try {
       await db.query(
         `INSERT INTO memory_attestations (content_hash, attestation_id, signed_at, status)
          VALUES ($1, $2, $3, $4)
          ON CONFLICT (content_hash) DO NOTHING`,
-        [storedHash, signResult.attestationId, signResult.signedAt, signResult.status]
+        [hash, signResult.attestationId, signResult.signedAt, signResult.status]
       );
     } catch (insertErr) {
       // Non-fatal: attestation was created upstream — log and continue.

@@ -107,5 +107,21 @@ describe("tools/verify.ts", () => {
 
       expect(result.error).toBeTruthy();
     });
+
+    it("TR-4: returns error for empty attestationId (SDK throws UserError)", async () => {
+      // MnemonicClient.verify() throws UserError for empty attestationId.
+      // verifyMemory() should catch it and return an error object.
+      const { verifyMemory } = await import("./verify.js");
+      const adapter = {
+        sign: mock(async () => ({ attestationId: "", signedAt: "", status: "signed" as const })),
+        verify: mock(async () => { throw new Error("verify: attestationId must be a non-empty string"); }),
+        recall: mock(async () => []),
+      } as unknown as MnemonikAdapter;
+
+      const result = await verifyMemory({ attestationId: "", adapter });
+
+      expect(result.error).toBeTruthy();
+      expect(result.status).toBe("not_found");
+    });
   });
 });
