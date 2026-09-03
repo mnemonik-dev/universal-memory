@@ -29,6 +29,8 @@ is answerable without waiting for Mostik to publish anything.
 
 - [`c2c-reproduction-plan.md`](./c2c-reproduction-plan.md) — staged plan, cheapest
   falsification first, with explicit kill criteria at each stage.
+- [`../../docs/hardware.md`](../../docs/hardware.md) — GPU/host sizing per phase
+  (tier C). Phase 0 is one 8–24 GB card; Phase 1 is a multi-GPU node.
 
 ## Relationship to `work/embedding-bridge/`
 

@@ -5,7 +5,8 @@ with Docker Compose, nginx reverse proxy, and Let's Encrypt HTTPS.
 
 ## Prerequisites
 
-- VPS with Ubuntu 22.04+ (or Debian 12+)
+- VPS with Ubuntu 22.04+ (or Debian 12+) — 2 vCPU / 4 GB RAM / 40 GB SSD floor,
+  4 vCPU / 8 GB comfortable; see [`docs/hardware.md`](docs/hardware.md)
 - Docker Engine + Docker Compose v2 installed
   ```bash
   # Docker install (if not already present)

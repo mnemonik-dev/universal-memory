@@ -123,7 +123,10 @@ for a shippable system:
 
 ## Cost and prerequisites
 
-- **Phase 0:** one 24 GB GPU, ~1 day. Nothing else.
+Full sizing, with the per-component VRAM arithmetic, is in
+[`docs/hardware.md`](../../docs/hardware.md) (tier C).
+
+- **Phase 0:** one GPU, 8 GB minimum / 16–24 GB comfortable, ~1 day. Nothing else.
 - **Phase 1:** multi-GPU (the recipe assumes 8 processes). Cost unknown until the
   1 % throughput probe — that probe *is* the budget estimate.
 - **Phases 2–3:** a real project, not a spike. Do not start either without Phase 1

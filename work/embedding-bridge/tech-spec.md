@@ -132,6 +132,14 @@ the rows that are otherwise unreachable.
   `anchor-set-v2.json` with a new id; rows carry the id they were projected under,
   so both can coexist and be migrated independently.
 
+## Hardware
+
+No GPU. The bridge adds arithmetic and storage, not compute class: a 6.29 MB
+anchor matrix per model, 4 KB per memory, and a per-query scan whose cost is
+tabulated in [`docs/hardware.md`](../../docs/hardware.md) (tier B). Backfill is
+memory-bound at under 100 MB peak and re-projects stored vectors without
+re-embedding any text.
+
 ## Testing
 
 - **Unit** — projection math: known vectors against a hand-computed matrix;
