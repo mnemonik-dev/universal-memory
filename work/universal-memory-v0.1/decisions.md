@@ -46,3 +46,41 @@ This is the gap task 5 closes.
 decomposition is the commit messages `task 1` … `task 14`, with 10-13 unaccounted for.
 
 ---
+
+## Scope change 2026-09-06: dogfooding replaces the infrastructure-first plan
+
+**Status:** Applied — the specification set was rewritten, not amended.
+**Agent:** main agent
+
+**Summary:** The first draft of this specification decomposed v0.1 into nine
+infrastructure tasks — continuous integration, a typecheck, a benchmark run, packaging,
+deployment. Completing all nine would have produced a well-tested system with no users,
+including us. The owner rejected it. v0.1 is now one acceptance test: the system is used
+for real work, every day, from any machine.
+
+Two requirements were added by the owner and drive the architecture: usable from **any
+machine**, and usable inside a **secured enterprise environment**. Together they settle
+three things that were previously open — the brain is hosted rather than laptop-local
+(there is no working two-way sync: `HybridAdapter` pushes only), clients install nothing
+(a URL and a token), and embeddings are computed on our own host so no document text
+leaves the perimeter.
+
+**RUMBA is dropped from v0.1** for two independent reasons. First, it measures a
+different product: personalised recall across multi-session dialogue, whereas this
+system serves coding agents over specifications, code and transcripts. Second, our
+harness does not compute the benchmark's metric — `packages/eval/run.py` states at line
+131 that its AnswerQuality is a substring heuristic, "a heuristic proxy for the
+LLM-judge AnswerQuality metric", while the stored mem0 baseline was produced by the
+research team's actual judge. Publishing that comparison would be a number that looks
+like a comparison and is not. Source for what the benchmark is:
+https://github.com/ai-forever/RUMBA (origin recorded only in the init commit message
+`c5715c4`; it was never mapped in `.gitmodules`). Replaced by a twenty-question
+known-answer check on our own corpus (task 4).
+
+**Also deferred out of v0.1:** npm publication (an HTTP client installs nothing),
+`memory_sync` pull and bidirectional, the three unbuilt ingestors, per-memory source
+metadata, the live Mnemonik signing round trip, the upstream gbrain re-pin, and
+`tsconfig.json` with a working typecheck. Task 8 decides each one explicitly.
+
+**Deviations:** The previous nine-task set was removed rather than kept alongside. Its
+content survives here and in git history (`a849c12`).
