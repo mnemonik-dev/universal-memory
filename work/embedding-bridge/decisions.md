@@ -112,3 +112,44 @@ inventing a second hashing convention. Anchor sets are never edited in place; a
 new corpus is a new file with a new id. Every sidecar row carries the id it was
 projected under, so two sets coexist and migrate independently. Downstream: a
 query only ever compares relative vectors sharing one `anchor_set_id`.
+
+---
+
+## 2026-09-06 — Reviewed, merged, and sequenced behind v0.1
+
+Author: claude (session reconciling this set with `work/universal-memory-v0.1/`).
+
+**Review outcome: the diagnosis holds.** `config.ts:120,151,169` does select the embedder
+from whichever key is present, and the Google/Ollama pair at 768 dimensions does fail
+silently rather than loudly. All four external citations were verified against their
+sources and are accurate, including the figures quoted from the Cache-to-Cache abstract.
+D5's use of the vec2vec security result to refuse anonymization claims is correct and is
+the strongest decision in this set.
+
+**D7 — The gating evaluation cannot run as written.** Task 6 gates the merge on RUMBA,
+but `research/RUMBA` is a gitlink with no `.gitmodules` mapping and an empty directory, so
+`packages/eval/run.py` cannot load its dataset. Separately, that harness states at line 131
+that its AnswerQuality is "a heuristic proxy for the LLM-judge AnswerQuality metric",
+while the stored mem0 baseline was produced by the research team's actual judge —
+comparing them yields a number that looks like a comparison and is not.
+
+**Decision:** the kill criterion stands, but it must be made executable before this
+feature is actionable. Either map the dataset and run the real judge, or restate the gate
+against an evaluation we can run on our own corpus. Until then Task 6 cannot pass or fail,
+which means no task after it can start.
+
+**D8 — The 85 % threshold needs a derivation.** The number is asserted, and so is
+Recall@10 as the metric. A kill criterion is only as good as its number: record why 85 %
+rather than 70 % or 95 %, in terms of what a user would notice.
+
+**D9 — Sequencing against v0.1.** Under `work/universal-memory-v0.1/`, the deployment runs
+one self-hosted embedder, so there is normally nothing to bridge. The exception is real
+and immediate: v0.1's task 2 permits substituting a smaller embedding model, which would
+strand an already-ingested corpus. **The guard half of this feature — tag every row with
+its embedding model, never compare across models — is pulled forward as v0.1 task 9.**
+The anchor-relative projection stays here.
+
+**Decision:** this set is deferred until the v0.1 week-one verdict, and resumes only if
+that verdict says continue and cross-provider portability is something a real user
+actually needed. Downstream: Tasks 1-8 here stay `planned`; Task 6's gate must be made
+runnable before any of them starts.

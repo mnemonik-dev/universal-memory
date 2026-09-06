@@ -84,3 +84,40 @@ metadata, the live Mnemonik signing round trip, the upstream gbrain re-pin, and
 
 **Deviations:** The previous nine-task set was removed rather than kept alongside. Its
 content survives here and in git history (`a849c12`).
+
+## Reconciliation 2026-09-06: embedding-bridge and latent-bridge folded in
+
+**Status:** Applied
+**Agent:** main agent
+
+**Summary:** A second specification set, `work/embedding-bridge/`, plus the research
+directory `research/latent-bridge/` and `docs/hardware.md`, were written on 2026-09-03 on
+branch `claude/intermodel-bridge-research-f557bl` and had never been merged — they were
+invisible from `main`, which is why an earlier reading of this repository wrongly reported
+that no specifications existed. That branch is now merged here so the three sets sit side
+by side with an explicit boundary.
+
+**The boundary:** `work/embedding-bridge/` diagnoses a real defect — `config.ts` selects
+the embedder from whichever key is present, and the Google/Ollama pair (both 768
+dimensions) fails silently rather than loudly. Under hosted-first with one self-hosted
+provider that defect mostly cannot occur, with one exception that occurs immediately:
+task 2 permits substituting a smaller embedding model, which would strand the corpus task
+4 ingests. v0.1 therefore takes the guard as **task 9** (tag rows, never compare across
+models) and leaves the anchor-relative bridge in its own folder behind its own gate.
+
+`research/latent-bridge/` needs GPUs this repository does not have and models this product
+does not serve. Parked; blocks nothing.
+
+**Verification performed on the merged research** (2026-09-06): all four external
+citations were checked against their sources and are accurate — Moschella et al. ICLR
+2023 (arXiv:2209.15430), vec2vec (arXiv:2505.12540, and its security framing is used
+correctly in that set's D5), the Platonic Representation Hypothesis (arXiv:2405.07987,
+correctly labelled a hypothesis), and Cache-to-Cache (arXiv:2510.03215, quoted figures
+verbatim from the abstract). Mostik's claims are corroborated as *self-reported* by
+secondary coverage. Two open items were raised against that set and recorded in its own
+decisions log: its gating evaluation cannot run, and one quoted figure needs a source
+check.
+
+**Deviations:** Acceptance criteria were renumbered when the guard was inserted while task
+identifiers were left stable, so AC8 maps to task 9 and AC9 to task 8. The mapping in
+tech-spec.md is authoritative.

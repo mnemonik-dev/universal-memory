@@ -69,6 +69,38 @@ because mocks once hid a total product failure (decisions F2).
 **D6. The week-one verdict may kill the project.** That is a legitimate outcome and the
 reason to dogfood before investing in packaging, benchmarks or a public claim.
 
+## Relationship to work/embedding-bridge and research/latent-bridge
+
+Two other specification sets live in this repository, written 2026-09-03 in a separate
+research session. They are not competitors to this one; the boundary is explicit.
+
+**`work/embedding-bridge/`** — cross-embedder memory via anchor-relative representations
+(Moschella et al., ICLR 2023, [arXiv:2209.15430](https://arxiv.org/abs/2209.15430)). Its
+diagnosis is correct and verifiable in our code: `config.ts` picks the embedder by
+whichever key is present, so memory written under one provider is unsearchable under
+another — and for the Google/Ollama pair, both 768-dimensional, it is silently
+*mis*-searched rather than refused.
+
+Under this specification's hosted-first architecture (D1) with one self-hosted provider
+(D2), that bug mostly does not bite: there is one embedder, so there is nothing to bridge.
+One case does bite, and immediately — task 2 permits substituting a smaller embedding
+model if the first does not fit the host, which strands every memory task 4 ingested.
+
+So v0.1 takes the guard and defers the bridge. **Task 9** tags rows with their embedding
+model and refuses cross-model comparison; the anchor-relative projection that makes
+cross-model search actually *work* stays in `work/embedding-bridge/`, behind its own
+gate and behind the week-one verdict.
+
+That gate cannot currently run: it is defined against RUMBA, which is an unmapped gitlink
+with an empty directory, and `packages/eval/run.py` computes a substring proxy where the
+stored baseline came from an LLM judge. Recorded in
+[`../embedding-bridge/decisions.md`](../embedding-bridge/decisions.md), 2026-09-06.
+
+**`research/latent-bridge/`** — bridging LLM hidden states and key-value caches
+(Cache-to-Cache, ICLR'26, [arXiv:2510.03215](https://arxiv.org/abs/2510.03215), with
+Apache-2.0 code). Requires open-weight models served on our own GPUs, which this product
+does not do and this repository has none of. Research; blocks nothing here.
+
 ## Testing Strategy
 
 1. **Unit** — existing mocked suites, every push.
@@ -100,7 +132,10 @@ reason to dogfood before investing in packaging, benchmarks or a public claim.
 ## Acceptance Criteria
 
 AC1 → task 1, AC2 → task 2, AC3 → task 3, AC4 → task 4, AC5 → task 5, AC6 → task 6,
-AC7 → task 7, AC8 → task 8.
+AC7 → task 7, **AC8 → task 9** (the embedding-model guard, added 2026-09-06),
+**AC9 → task 8** (the verdict). The acceptance criteria were renumbered when the guard
+was inserted; task identifiers were left stable, so the last two do not line up.
+The mapping above is authoritative.
 
 ## Implementation Tasks
 
@@ -113,4 +148,5 @@ AC7 → task 7, AC8 → task 8.
 | 5 | 2 | Daily-use loop wired into the agent | 3 |
 | 6 | 2 | Locked-down perimeter: proxy, custom CA, fail-closed egress | 1 |
 | 7 | 3 | Minimal continuous integration | — |
-| 8 | 3 | Week-one verdict | 4, 5, 6 |
+| 8 | 3 | Week-one verdict | 4, 5, 6, 9 |
+| 9 | 2 | Embedding-model guard: tag rows, never compare across models | 2 |

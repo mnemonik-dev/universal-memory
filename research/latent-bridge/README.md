@@ -43,3 +43,22 @@ Different layer, do not conflate them:
   specified as a normal feature with a gating eval.
 
 Nothing in this directory blocks that one.
+
+## Review notes (2026-09-06)
+
+Citations checked against sources: Cache-to-Cache (arXiv:2510.03215), DroidSpeak
+(arXiv:2411.02820) and CALM (arXiv:2401.02412) are accurate, and the C2C figures quoted
+above match its abstract verbatim. Mostik's existence and its claims are corroborated by
+secondary coverage as *self-reported*; the WIRED article could not be fetched from this
+environment, which is not evidence either way.
+
+**One figure to verify before reuse.** The "2.5× less compute than the equivalent
+mid-sized model" attributed to Mostik above is numerically identical to C2C's reported
+"2.5× speedup in latency" — a different claim from a different source. Secondary coverage
+frames Mostik's economics differently again (roughly one-twentieth the cost of the large
+model alone). Pin the baseline and the primary source, or drop the figure.
+
+**Status: parked.** This requires GPUs neither this repository's continuous integration
+nor its development environments have, and open-weight models this product does not serve.
+It blocks nothing in `work/universal-memory-v0.1/` or `work/embedding-bridge/`. Revisit if
+serving our own models ever becomes part of the product.
