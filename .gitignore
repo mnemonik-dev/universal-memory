@@ -26,3 +26,8 @@ Thumbs.db
 # Temp
 /tmp/
 *.tmp
+
+# Eval run artifacts. Numbers that matter are transcribed into the relevant
+# decisions.md / recall-check.md, where they carry their configuration with them.
+packages/eval/results/
+packages/eval/__pycache__/

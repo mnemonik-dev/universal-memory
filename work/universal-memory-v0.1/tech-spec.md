@@ -91,10 +91,13 @@ model and refuses cross-model comparison; the anchor-relative projection that ma
 cross-model search actually *work* stays in `work/embedding-bridge/`, behind its own
 gate and behind the week-one verdict.
 
-That gate cannot currently run: it is defined against RUMBA, which is an unmapped gitlink
-with an empty directory, and `packages/eval/run.py` computes a substring proxy where the
-stored baseline came from an LLM judge. Recorded in
-[`../embedding-bridge/decisions.md`](../embedding-bridge/decisions.md), 2026-09-06.
+That gate could not run when this was written; it can now. The dataset was an unmapped
+gitlink pinned to a commit the remote does not have — mapped and re-pinned to `a20471a`,
+verified at 85 dialogues and 1543 QA pairs. The metric mismatch was scoped out rather than
+papered over: the gate is self-relative (off-diagonal against the diagonal of the same
+query model, same dataset, same metric), so it needs neither the mem0 baseline nor an LLM
+judge. Recorded in [`../embedding-bridge/decisions.md`](../embedding-bridge/decisions.md),
+D7 and D10.
 
 **`research/latent-bridge/`** — bridging LLM hidden states and key-value caches
 (Cache-to-Cache, ICLR'26, [arXiv:2510.03215](https://arxiv.org/abs/2510.03215), with

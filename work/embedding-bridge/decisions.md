@@ -153,3 +153,49 @@ The anchor-relative projection stays here.
 that verdict says continue and cross-provider portability is something a real user
 actually needed. Downstream: Tasks 1-8 here stay `planned`; Task 6's gate must be made
 runnable before any of them starts.
+
+---
+
+## 2026-09-06 — D10: the gate is executable; D7's blocker is cleared
+
+Author: claude (same session as D7-D9).
+
+**What was wrong.** D7 recorded two problems: the dataset could not be loaded, and the
+harness's metric did not match the baseline it compared against. Both are resolved, by
+different means — one was fixed, the other was scoped out of the gate.
+
+**Dataset — fixed.** `research/RUMBA` was a gitlink with no `.gitmodules` mapping,
+pinned to `ba08160`, which the remote does not have (`upload-pack: not our ref`) — the
+identical dead-pin failure gbrain suffered. Mapped to
+`https://github.com/ai-forever/RUMBA.git` and re-pinned to `a20471a`. Verified:
+`data_locomo_format_en.json` loads, 85 dialogues, 1543 QA pairs, each with
+`question`/`answer`/`evidence`/`category`.
+
+**Metric — scoped out, not papered over.** The harness's AnswerQuality is a substring
+proxy and the mem0 baseline is an LLM-judge score; they are not comparable. That
+mismatch does not touch this gate, because the gate is **self-relative**: off-diagonal
+Recall@10 against the diagonal of the same `query_model`, same dataset, same metric. A
+deterministic Recall@k over the dataset's own evidence spans is comparable to itself.
+The gate therefore uses Recall@k only, and the mem0 comparison is explicitly not a
+gate. `run.py` prints that caveat on every run so the distinction cannot be lost.
+
+**Three harness defects fixed while making this runnable:**
+
+1. `--dry-run` was documented in the module docstring but never wired into argparse —
+   the flag simply did not exist. Now it does, and it validates the dataset.
+2. The dry-run path wrote `universal-memory.json` — *the results filename* — containing
+   the mem0 baseline's own numbers, printed "ALL ASSERTIONS PASSED", and exited 0. Any
+   automated run on a machine without Bun would have produced a fabricated green with a
+   plausible-looking results file. It now writes `dry-run.json`, states that no
+   measurement was performed, and prints no PASS line.
+3. A missing Bun during a real run silently degraded into that dry run. It is now a
+   hard error with exit 1. Same principle as v0.1's D3: never degrade silently.
+4. Results defaulted into `research/RUMBA/results/` — inside the submodule, where they
+   would dirty it or be lost. Now `packages/eval/results/`.
+
+**Still open (D8):** the 85 % threshold remains asserted rather than derived. The gate
+can now run; what the number means to a user is still unargued.
+
+**Downstream:** Task 6 is unblocked and carries the exact commands. It still needs Bun
+plus all three providers reachable, and it still gates Tasks 7-8. Sequencing under D9 is
+unchanged: this set waits on the v0.1 week-one verdict.
