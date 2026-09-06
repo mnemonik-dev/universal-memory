@@ -20,10 +20,15 @@ import { LocalAdapter } from "./local.js";
 let dir: string;
 let adapter: LocalAdapter;
 
-beforeAll(() => {
+// Engine start-up (PGLite boot + ~120 pending gbrain migrations) is charged to
+// whichever test touches the adapter first. That cold start runs for seconds on
+// a loaded machine, so warm it here instead — with an explicit hook timeout,
+// since the default 5s budget is not enough under CPU contention.
+beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "local-adapter-it-"));
   adapter = new LocalAdapter({ dataDir: dir });
-});
+  await adapter.list({ limit: 1 });
+}, 120_000);
 
 afterAll(() => {
   try { rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }

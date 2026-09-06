@@ -1,2 +1,6 @@
+# NOTE: Bun does NOT read a test timeout from bunfig.toml — the key below is
+# inert and is kept only to document the intended budget. The effective timeout
+# comes from `--timeout` in the "test" script in package.json; anything invoking
+# a bare `bun test` gets Bun's 5s default.
 [test]
 timeout = 30000

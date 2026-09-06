@@ -41,7 +41,9 @@ from typing import Any, Optional
 _EVAL_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _EVAL_DIR.parents[1]
 _RUMBA_ROOT = _REPO_ROOT / "research" / "RUMBA"
-_RESULTS_DIR = _RUMBA_ROOT / "results"
+# Results live in OUR repository, not inside the RUMBA submodule: anything
+# written under research/RUMBA/ would either dirty the submodule or be lost.
+_RESULTS_DIR = _REPO_ROOT / "packages" / "eval" / "results"
 _EVAL_DATA = _RUMBA_ROOT / "evaluation" / "data" / "data_locomo_format_en.json"
 
 sys.path.insert(0, str(_RUMBA_ROOT))
@@ -202,47 +204,37 @@ def _load_mem0_baseline() -> dict:
 
 def _dry_run_eval(baseline: dict, output_dir: Path) -> int:
     """
-    Emit expected output format without running the actual MCP server.
-    Used for smoke testing when Bun is not installed.
-    """
-    # Simulate results that would pass both assertions
-    # (in a real run these come from actual MCP tool calls)
-    ra5 = baseline["RecallAccuracy@5"]   # equals baseline → PASS
-    aq = 0.70                             # equals threshold → PASS
+    Validate that the harness and dataset are wired up. Performs NO measurement.
 
-    results = {
+    This deliberately does not write universal-memory.json and does not print a
+    PASS line. An earlier version did both — it emitted the baseline's own numbers
+    into the results file and reported "ALL ASSERTIONS PASSED" with exit 0, so a
+    missing Bun in an automated run produced a fabricated green. A check that
+    cannot measure must say so, not pass.
+    """
+    report = {
         "service": "universal-memory",
         "dataset": "RUMBA EN",
-        "mode": "dry-run (Bun not available — smoke check only)",
-        "n_dialogues": 0,
-        "n_qa_pairs": 0,
-        "RecallAccuracy@5": ra5,
-        "AnswerQuality": aq,
-        "errors": 0,
+        "mode": "dry-run — harness and dataset validated, NO measurement performed",
+        "RecallAccuracy@5": None,
+        "AnswerQuality": None,
         "note": (
-            "Dry-run mode: Bun not found on PATH. "
-            "Install Bun (https://bun.sh) and re-run for actual evaluation. "
-            "Reported metrics are baseline values, not actual universal-memory results."
+            "Dry-run performs no evaluation. Run without --dry-run, with Bun on "
+            "PATH and an embedding provider configured, to produce real numbers."
         ),
         "evaluated_at": datetime.utcnow().isoformat() + "Z",
     }
 
-    results_path = output_dir / "universal-memory.json"
     output_dir.mkdir(parents=True, exist_ok=True)
-    with open(results_path, "w") as f:
-        json.dump(results, f, indent=2)
+    report_path = output_dir / "dry-run.json"
+    with open(report_path, "w") as f:
+        json.dump(report, f, indent=2)
 
-    mem0_ra5 = baseline["RecallAccuracy@5"]
-    print(f"[eval] DRY-RUN mode — Bun not found. Smoke check only.", flush=True)
-    print(f"[eval] Install Bun (https://bun.sh) for actual evaluation.", flush=True)
     print(f"\n{'='*60}", flush=True)
-    print(f"  RecallAccuracy@5 = {ra5:.4f}  (mem0 baseline: {mem0_ra5:.4f})  [DRY-RUN]", flush=True)
-    print(f"  AnswerQuality    = {aq:.4f}  (threshold: 0.70)  [DRY-RUN]", flush=True)
-    print(f"{'='*60}", flush=True)
-    print(f"  PASS  RecallAccuracy@5 {ra5:.4f} >= mem0 {mem0_ra5:.4f}  [DRY-RUN]", flush=True)
-    print(f"  PASS  AnswerQuality {aq:.4f} >= 0.70  [DRY-RUN]", flush=True)
-    print(f"\n  ALL ASSERTIONS PASSED  [DRY-RUN — install Bun for real eval]", flush=True)
-    print(flush=True)
+    print("  DRY RUN — harness and dataset validated.", flush=True)
+    print("  NO measurement was performed. No scores were produced.", flush=True)
+    print(f"  Report: {report_path}", flush=True)
+    print(f"{'='*60}\n", flush=True)
     return 0
 
 
@@ -389,6 +381,10 @@ def main() -> int:
         "--verbose", action="store_true",
         help="Print per-QA results",
     )
+    ap.add_argument(
+        "--dry-run", action="store_true",
+        help="Validate the dataset and the harness without running the backend",
+    )
     args = ap.parse_args()
 
     output_dir = Path(args.output_dir)
@@ -406,11 +402,45 @@ def main() -> int:
         f"AnswerQuality={baseline['AnswerQuality']:.4f}",
         flush=True,
     )
+    print(
+        "[eval] CAVEAT: the mem0 baseline above is an LLM-judge score, while this "
+        "harness computes a substring proxy for AnswerQuality. The comparison is "
+        "indicative only and is NOT a gate. Deterministic Recall@k against the "
+        "dataset's own evidence spans is comparable to itself and IS gate-usable "
+        "(see work/embedding-bridge/decisions.md, D7).",
+        flush=True,
+    )
+
+    # ── dry run: prove the dataset is reachable and parses, then stop ────────
+    if args.dry_run:
+        data_path = Path(args.data)
+        if not data_path.exists():
+            print(
+                f"[ERROR] Dataset not found: {data_path}\n"
+                f"        Run: git submodule update --init research/RUMBA",
+                file=sys.stderr,
+            )
+            return 1
+        with open(data_path) as f:
+            data = json.load(f)
+        n_qa = sum(len(item.get("qa", [])) for item in data)
+        print(
+            f"[eval] Dataset OK — {data_path.name}: "
+            f"{len(data)} dialogues, {n_qa} QA pairs",
+            flush=True,
+        )
+        return _dry_run_eval(baseline, output_dir)
 
     # ── check Bun availability ───────────────────────────────────────────────
     if not _check_bun():
-        print("[eval] WARNING: 'bun' not found on PATH.", flush=True)
-        return _dry_run_eval(baseline, output_dir)
+        print(
+            "[ERROR] 'bun' not found on PATH — cannot run the backend, so nothing "
+            "can be measured.\n"
+            "        Install Bun (https://bun.sh), or pass --dry-run to validate "
+            "the harness only.",
+            file=sys.stderr,
+        )
+        return 1
 
     # ── load dataset ─────────────────────────────────────────────────────────
     data_path = Path(args.data)
