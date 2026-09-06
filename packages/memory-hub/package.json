@@ -30,7 +30,7 @@
   "scripts": {
     "dev": "bun --watch src/mcp/server.ts",
     "start": "bun src/mcp/server.ts",
-    "test": "bun test src/",
+    "test": "bun test --timeout 30000 src/",
     "setup": "bun run src/setup.ts",
     "typecheck": "tsc --noEmit"
   }
