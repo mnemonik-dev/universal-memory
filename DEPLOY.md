@@ -5,8 +5,12 @@ with Docker Compose, nginx reverse proxy, and Let's Encrypt HTTPS.
 
 ## Prerequisites
 
-- VPS with Ubuntu 22.04+ (or Debian 12+) — 2 vCPU / 4 GB RAM / 40 GB SSD floor,
-  4 vCPU / 8 GB comfortable; see [`docs/hardware.md`](docs/hardware.md)
+- VPS with Ubuntu 22.04+ (or Debian 12+). v0.1 target is a Hetzner Cloud instance.
+  Sizing with the self-hosted Ollama service (default since v0.1 — no document text
+  leaves the host): **4 vCPU / 8 GB RAM / 40 GB SSD minimum** for embeddings
+  (`nomic-embed-text`, ~274 MB); **16 GB** if you also run `memory_think` synthesis
+  (`llama3.2`, ~2 GB, CPU inference). See [`docs/hardware.md`](docs/hardware.md).
+  Without Ollama, 2 vCPU / 4 GB is the floor.
 - Docker Engine + Docker Compose v2 installed
   ```bash
   # Docker install (if not already present)
@@ -21,9 +25,14 @@ with Docker Compose, nginx reverse proxy, and Let's Encrypt HTTPS.
 ## 1. Clone the repository
 
 ```bash
-git clone https://github.com/mnemonik-dev/universal-memory.git /opt/universal-memory
+git clone --recurse-submodules https://github.com/mnemonik-dev/universal-memory.git /opt/universal-memory
 cd /opt/universal-memory
+ls vendors/gbrain/package.json   # must exist — the Dockerfile COPYs vendors/gbrain
 ```
+
+`--recurse-submodules` is required: the image build copies `vendors/gbrain` into the
+container and fails without it. If you cloned without the flag:
+`git submodule update --init vendors/gbrain`.
 
 ## 2. Configure environment variables
 
@@ -45,14 +54,25 @@ All other variables have working defaults. See `.env.example` for full reference
 ## 3. Start the services
 
 ```bash
-docker compose up memory-hub postgres -d
+docker compose up -d            # postgres, ollama, memory-hub
 ```
 
-Verify both containers are healthy:
+Pull the models into the `ollama` service (one-time; persisted in the `ollama_models`
+volume). Do this before trusting search results — `config.ts` probes Ollama at startup
+and silently falls back to keyword-only (BM25) if it is unreachable:
+
+```bash
+docker compose exec ollama ollama pull nomic-embed-text   # embeddings, required
+docker compose exec ollama ollama pull llama3.2           # memory_think, optional
+docker compose restart memory-hub                         # re-probe with models present
+```
+
+Verify all three containers are healthy:
 
 ```bash
 docker compose ps
 # memory-hub   Up (healthy)
+# ollama       Up (healthy)
 # postgres     Up (healthy)
 ```
 
@@ -62,7 +82,9 @@ Check memory-hub logs:
 docker compose logs memory-hub --tail 20
 ```
 
-Expected output: `memory-hub started on port 3456 (cloud mode)` (or similar startup line).
+Expected output includes `AI gateway configured: provider=ollama`. If you see
+`bm25-only` instead, Ollama was not reachable at startup — pull the models and restart
+`memory-hub`. Keyword-only mode is not a working deployment for v0.1.
 
 ## 4. Configure nginx
 
@@ -138,8 +160,18 @@ curl -H "Authorization: Bearer $MEMORY_API_KEY" \
      https://memory.YOUR_ACTUAL_DOMAIN.com/mcp
 ```
 
-Expected response: JSON with 7 tools listed: `memory_capture`, `memory_search`,
-`memory_think`, `memory_sign`, `memory_verify`, `memory_list`, `memory_delete`.
+Expected response: JSON with 8 tools listed: `memory_capture`, `memory_search`,
+`memory_think`, `memory_sign`, `memory_verify`, `memory_list`, `memory_delete`,
+`memory_sync`.
+
+**Persistence (v0.1 acceptance criterion AC1):** capture one memory through the
+endpoint, then `docker compose down && docker compose up -d`, then search for it. It
+must come back. Postgres data lives on the `postgres_data` named volume; if the memory
+is gone after a restart, the volume is not mounted.
+
+**Semantic search (AC2):** capture a sentence, then search for it in different words
+that share no significant terms with it. Keyword-only mode cannot do this; if it fails,
+check the `provider=ollama` line in step 3.
 
 ## 7. Configure clients
 

@@ -121,3 +121,23 @@ check.
 **Deviations:** Acceptance criteria were renumbered when the guard was inserted while task
 identifiers were left stable, so AC8 maps to task 9 and AC9 to task 8. The mapping in
 tech-spec.md is authoritative.
+
+## Approval 2026-09-06
+
+**Status:** Approved by the owner.
+**Agent:** main agent
+
+**Summary:** The open question the specification could not answer itself is answered:
+first user is the owner, client is their MacBook running Claude Code, host is Hetzner
+Cloud. `user-spec.md` moves from draft to approved. Deploy preparation landed in the
+same change: an `ollama` service in `docker-compose.yml` with a persistent model volume
+and `OLLAMA_BASE_URL` defaulting to it; `DEPLOY.md` corrected to clone with
+`--recurse-submodules` (the image build copies `vendors/gbrain` and failed without it),
+to pull models before trusting search, to expect `provider=ollama` in the startup log,
+to list all 8 tools, and to include the AC1 persistence and AC2 semantic checks.
+
+**Constraint recorded:** this session's sandbox cannot open SSH (port 22 blocked,
+HTTPS-proxy-only egress), so the deploy commands are run by the owner on the server and
+the agent verifies from outside over HTTPS.
+
+**Deviations:** None.
