@@ -76,6 +76,8 @@ interface ResolvedConfig {
   dataDir: string;
   provider?: string;
   ollamaBaseUrl?: string;
+  /** Fully-qualified chat model (provider:model) for gbrain's think pipeline. */
+  chatModel?: string;
 }
 
 // Module-level config — resolved once at startup.
@@ -127,7 +129,7 @@ async function initConfig(): Promise<ResolvedConfig> {
     process.stderr.write(
       `[universal-memory] AI gateway configured: provider=openai, key=${maskKey(openaiKey)}\n`
     );
-    return { mode: 'full', dataDir, provider: 'openai' };
+    return { mode: 'full', dataDir, provider: 'openai', chatModel: 'openai:gpt-4o' };
   }
 
   if (anthropicKey) {
@@ -142,7 +144,7 @@ async function initConfig(): Promise<ResolvedConfig> {
     process.stderr.write(
       `[universal-memory] AI gateway configured: provider=anthropic, key=${maskKey(anthropicKey)}\n`
     );
-    return { mode: 'full', dataDir, provider: 'anthropic' };
+    return { mode: 'full', dataDir, provider: 'anthropic', chatModel: 'anthropic:claude-haiku-4-5-20251001' };
   }
 
   if (googleKey) {
@@ -158,7 +160,7 @@ async function initConfig(): Promise<ResolvedConfig> {
     process.stderr.write(
       `[universal-memory] AI gateway configured: provider=google, key=${maskKey(googleKey)}\n`
     );
-    return { mode: 'full', dataDir, provider: 'google' };
+    return { mode: 'full', dataDir, provider: 'google', chatModel: 'google:gemini-2.0-flash-001' };
   }
 
   // Priority 2: Ollama
@@ -180,7 +182,7 @@ async function initConfig(): Promise<ResolvedConfig> {
     process.stderr.write(
       `[universal-memory] AI gateway configured: provider=ollama, baseUrl=${ollamaBase}\n`
     );
-    return { mode: 'ollama', dataDir, provider: 'ollama', ollamaBaseUrl: ollamaBase };
+    return { mode: 'ollama', dataDir, provider: 'ollama', ollamaBaseUrl: ollamaBase, chatModel: 'ollama:llama3.2' };
   }
 
   // Priority 3: BM25-only fallback
@@ -209,6 +211,24 @@ await _initPromise;
 
 /** The operating mode determined at startup. */
 export const mode: Mode = _resolvedConfig.mode;
+
+/**
+ * Whether an embedding provider is actually configured. Anthropic mode sets a
+ * chat model but NO embedding model (Anthropic has no embeddings API), so
+ * embeddings are only available for openai / google / ollama. When false,
+ * capture stores BM25-only (noEmbed) and search uses keyword-only — otherwise
+ * gbrain would try to embed content/queries with no provider and throw.
+ */
+export const embeddingsEnabled: boolean =
+  _resolvedConfig.mode !== 'bm25-only' && _resolvedConfig.provider !== 'anthropic';
+
+/**
+ * Fully-qualified chat model (provider:model) for gbrain's think pipeline.
+ * gbrain's runThink otherwise resolves a default model that does not pick up
+ * the configured provider key over MCP; passing this explicitly fixes that.
+ * Undefined in bm25-only mode (no synthesis).
+ */
+export const chatModel: string | undefined = _resolvedConfig.chatModel;
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
